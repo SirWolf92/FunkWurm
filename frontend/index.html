@@ -20,6 +20,14 @@
     <h1>FunkWurm</h1>
     <span id="status">verbinden…</span>
     <div style="flex: 1;"></div>
+    <label style="font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 6px;">
+      Quality
+      <select id="quality-select" style="background: #1a1a24; color: #ddd; border: 1px solid #333; border-radius: 4px; padding: 4px 8px; font-size: 12px;">
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </label>
     <button id="btn-reload" style="padding: 6px 12px; background: #2a3c56; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Herladen</button>
   </header>
 
@@ -65,6 +73,9 @@
     import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
     import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
+    const QUALITY_KEY = 'funkwurm.quality';
+    const QUALITY_DEFAULT = 'medium';
+
     const $ = id => document.getElementById(id);
 
     // --- Three.js setup ---
@@ -98,19 +109,27 @@
     const axes = new THREE.AxesHelper(30);
     scene.add(axes);
 
-    let previewObject = null;
+    // ---- Viewer state ----
+    // Keeps parsed gcode / loaded STL cached so quality changes don't re-parse.
+    const viewer = {
+      previewObject: null,
+      gcode: null,   // { segments: [[x0,y0,z0,x1,y1,z1], ...], bounds, label }
+      stl: null,     // { geometry, label }
+      quality: localStorage.getItem(QUALITY_KEY) || QUALITY_DEFAULT,
+    };
+
+    function disposeObject(obj) {
+      if (!obj) return;
+      scene.remove(obj);
+      obj.geometry?.dispose?.();
+      const m = obj.material;
+      if (Array.isArray(m)) m.forEach(x => x.dispose());
+      else m?.dispose?.();
+    }
 
     function clearPreview() {
-      if (previewObject) {
-        scene.remove(previewObject);
-        previewObject.geometry?.dispose?.();
-        if (Array.isArray(previewObject.material)) {
-          previewObject.material.forEach(m => m.dispose());
-        } else {
-          previewObject.material?.dispose?.();
-        }
-        previewObject = null;
-      }
+      disposeObject(viewer.previewObject);
+      viewer.previewObject = null;
     }
 
     function frameBounds(minV, maxV) {
@@ -196,41 +215,85 @@
     const _dir = new THREE.Vector3();
     const _dummy = new THREE.Object3D();
 
-    function showGcodeSegments(segments, bounds, label) {
-      clearPreview();
-      if (!segments.length) {
-        $('info').textContent = label ? `${label} — geen extrusion segments` : 'geen segments';
-        requestRender();
-        return;
+    // Build flat positions/colors once. Reused by Low + Medium renderers.
+    function buildSegmentBuffers(segments, bounds) {
+      const zMin = bounds.min[2];
+      const zRange = Math.max(bounds.max[2] - zMin, 1e-6);
+      const n = segments.length;
+      const positions = new Float32Array(n * 6);
+      const colors = new Float32Array(n * 6);
+      const c = new THREE.Color();
+      for (let i = 0; i < n; i++) {
+        const s = segments[i];
+        positions.set(s, i * 6);
+        const t = (s[2] - zMin) / zRange;
+        c.setHSL(0.62 - t * 0.55, 0.7, 0.55);
+        const o = i * 6;
+        colors[o]     = c.r; colors[o + 1] = c.g; colors[o + 2] = c.b;
+        colors[o + 3] = c.r; colors[o + 4] = c.g; colors[o + 5] = c.b;
       }
+      return { positions, colors };
+    }
 
+    // LOW: flat 1px lines, one draw call, cheapest.
+    function buildGcodeLow(segments, bounds) {
+      const { positions, colors } = buildSegmentBuffers(segments, bounds);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const mat = new THREE.LineBasicMaterial({ vertexColors: true });
+      const obj = new THREE.LineSegments(geo, mat);
+      obj.frustumCulled = false;
+      return obj;
+    }
+
+    // MEDIUM: thick screen-space lines (Line2). Still one draw call.
+    function buildGcodeMedium(segments, bounds) {
+      const { positions, colors } = buildSegmentBuffers(segments, bounds);
+      const geo = new LineSegmentsGeometry();
+      geo.setPositions(positions);
+      geo.setColors(colors);
+      const mat = new LineMaterial({
+        vertexColors: true,
+        linewidth: 3,
+        worldUnits: false,
+        dashed: false,
+      });
+      mat.resolution.set(wrap.clientWidth, wrap.clientHeight);
+      const obj = new LineSegments2(geo, mat);
+      obj.computeLineDistances();
+      obj.frustumCulled = false;
+      obj.userData.lineMaterial = mat;
+      return obj;
+    }
+
+    // HIGH: solid extrusion boxes per segment via InstancedMesh.
+    function buildGcodeHigh(segments, bounds) {
+      const n = segments.length;
       const box = new THREE.BoxGeometry(1, EXTRUSION_WIDTH, LAYER_HEIGHT);
-      const mat = new THREE.MeshLambertMaterial({ vertexColors: false });
-      const mesh = new THREE.InstancedMesh(box, mat, segments.length);
+      const mat = new THREE.MeshLambertMaterial();
+      const mesh = new THREE.InstancedMesh(box, mat, n);
       mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
 
-      const color = new THREE.Color();
       const zMin = bounds.min[2];
-      const zMax = bounds.max[2];
-      const zRange = Math.max(zMax - zMin, 1e-6);
+      const zRange = Math.max(bounds.max[2] - zMin, 1e-6);
+      const color = new THREE.Color();
 
       let written = 0;
-      for (let i = 0; i < segments.length; i++) {
+      for (let i = 0; i < n; i++) {
         const s = segments[i];
-        const x0 = s[0], y0 = s[1], z0 = s[2];
-        const x1 = s[3], y1 = s[4], z1 = s[5];
-        const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+        const dx = s[3] - s[0], dy = s[4] - s[1], dz = s[5] - s[2];
         const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-5) continue;
 
         _dir.set(dx / len, dy / len, dz / len);
-        _dummy.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+        _dummy.position.set((s[0] + s[3]) / 2, (s[1] + s[4]) / 2, (s[2] + s[5]) / 2);
         _dummy.quaternion.setFromUnitVectors(X_AXIS, _dir);
         _dummy.scale.set(len, 1, 1);
         _dummy.updateMatrix();
         mesh.setMatrixAt(written, _dummy.matrix);
 
-        const t = (z0 - zMin) / zRange;
+        const t = (s[2] - zMin) / zRange;
         color.setHSL(0.62 - t * 0.55, 0.7, 0.55);
         mesh.setColorAt(written, color);
         written++;
@@ -239,26 +302,62 @@
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.frustumCulled = false;
+      return mesh;
+    }
 
-      previewObject = mesh;
-      scene.add(mesh);
-      frameBounds(bounds.min, bounds.max);
-      $('info').textContent = `${label} — ${written} extrusion segments`;
+    function buildGcodeForQuality(segments, bounds) {
+      switch (viewer.quality) {
+        case 'low':  return buildGcodeLow(segments, bounds);
+        case 'high': return buildGcodeHigh(segments, bounds);
+        default:     return buildGcodeMedium(segments, bounds);
+      }
+    }
+
+    function renderCurrent() {
+      clearPreview();
+      if (viewer.gcode) {
+        const { segments, bounds, label } = viewer.gcode;
+        if (!segments.length) {
+          $('info').textContent = `${label} — geen extrusion segments`;
+          requestRender();
+          return;
+        }
+        viewer.previewObject = buildGcodeForQuality(segments, bounds);
+        scene.add(viewer.previewObject);
+        frameBounds(bounds.min, bounds.max);
+        $('info').textContent = `${label} — ${segments.length} segments · ${viewer.quality}`;
+      } else if (viewer.stl) {
+        const { geometry, label } = viewer.stl;
+        geometry.computeVertexNormals();
+        geometry.computeBoundingBox();
+        const bb = geometry.boundingBox;
+        const mat = new THREE.MeshPhongMaterial({
+          color: 0x4a9eff,
+          specular: 0x222222,
+          shininess: viewer.quality === 'low' ? 10 : 40,
+          flatShading: viewer.quality === 'low',
+        });
+        viewer.previewObject = new THREE.Mesh(geometry, mat);
+        scene.add(viewer.previewObject);
+        frameBounds([bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.max.y, bb.max.z]);
+        const tri = geometry.attributes.position.count / 3;
+        $('info').textContent = `${label} — STL, ${tri | 0} triangles · ${viewer.quality}`;
+      } else {
+        $('info').textContent = 'geen bestand geladen';
+      }
       requestRender();
     }
 
+    function showGcodeSegments(segments, bounds, label) {
+      viewer.gcode = { segments, bounds, label };
+      viewer.stl = null;
+      renderCurrent();
+    }
+
     function showStlGeometry(geometry, label) {
-      clearPreview();
-      geometry.computeVertexNormals();
-      geometry.computeBoundingBox();
-      const bb = geometry.boundingBox;
-      const mat = new THREE.MeshPhongMaterial({ color: 0x4a9eff, specular: 0x222222, shininess: 40, flatShading: false });
-      previewObject = new THREE.Mesh(geometry, mat);
-      scene.add(previewObject);
-      frameBounds([bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.max.y, bb.max.z]);
-      const tri = geometry.attributes.position.count / 3;
-      $('info').textContent = `${label} — STL, ${tri | 0} triangles`;
-      requestRender();
+      viewer.stl = { geometry, label };
+      viewer.gcode = null;
+      renderCurrent();
     }
 
     const hemi = new THREE.HemisphereLight(0xddeeff, 0x202030, 0.9);
@@ -280,12 +379,15 @@
     }
     animate();
 
-    window.addEventListener('resize', () => {
+    function handleResize() {
       camera.aspect = wrap.clientWidth / wrap.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+      const lm = viewer.previewObject?.userData?.lineMaterial;
+      if (lm) lm.resolution.set(wrap.clientWidth, wrap.clientHeight);
       requestRender();
-    });
+    }
+    window.addEventListener('resize', handleResize);
 
     async function loadGcode() {
       $('info').textContent = 'gcode laden…';
@@ -440,6 +542,15 @@
         $('file-input').files = e.dataTransfer.files;
         $('file-input').dispatchEvent(new Event('change'));
       }
+    });
+
+    // --- Quality selector ---
+    const qualitySelect = $('quality-select');
+    qualitySelect.value = viewer.quality;
+    qualitySelect.addEventListener('change', () => {
+      viewer.quality = qualitySelect.value;
+      localStorage.setItem(QUALITY_KEY, viewer.quality);
+      renderCurrent();
     });
 
     // --- Init ---
