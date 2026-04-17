@@ -146,14 +146,12 @@
       const distH = (sx / 2) / (Math.tan(fov / 2) * aspect);
       const dist = Math.max(distV, distH, 50) * 1.25;
 
-      // Iets naar rechts gedraaid vanuit de front-face (rotatie ~15° rond Z).
-      const yaw = 15 * Math.PI / 180;
-      camera.position.set(
-        cx + dist * Math.sin(yaw),
-        cy - dist * Math.cos(yaw),
-        cz,
-      );
-      camera.lookAt(cx, cy, cz);
+      // Face-forward, gepand naar rechts: camera en target beide op +X offset,
+      // view-direction blijft langs +Y. Object verschuift zo naar links in beeld.
+      const panX = sx * 0.2;
+      controls.target.set(cx + panX, cy, cz);
+      camera.position.set(cx + panX, cy - dist, cz);
+      camera.lookAt(cx + panX, cy, cz);
       requestRender();
     }
 
@@ -222,6 +220,41 @@
     const X_AXIS = new THREE.Vector3(1, 0, 0);
     const _dir = new THREE.Vector3();
     const _dummy = new THREE.Object3D();
+
+    // Grote performance-win: slicers produceren veel tiny collineaire segmenten
+    // die we kunnen samenvoegen, en micro-extrusies (<0.02mm) droppen.
+    const MIN_SEG_LEN = 0.02;
+    const MERGE_DOT = 0.9995;   // ~1.8° afwijking tolerantie
+    const MERGE_GAP = 1e-3;
+
+    function optimizeSegments(segments) {
+      const out = [];
+      if (!segments.length) return out;
+      let cur = null;
+      for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        const dx = s[3] - s[0], dy = s[4] - s[1], dz = s[5] - s[2];
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < MIN_SEG_LEN) continue;
+        if (cur) {
+          const cdx = cur[3] - cur[0], cdy = cur[4] - cur[1], cdz = cur[5] - cur[2];
+          const clen = Math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz);
+          const gapX = s[0] - cur[3], gapY = s[1] - cur[4], gapZ = s[2] - cur[5];
+          const gap = Math.sqrt(gapX * gapX + gapY * gapY + gapZ * gapZ);
+          if (gap < MERGE_GAP && clen > 0) {
+            const dot = (cdx * dx + cdy * dy + cdz * dz) / (clen * len);
+            if (dot > MERGE_DOT) {
+              cur[3] = s[3]; cur[4] = s[4]; cur[5] = s[5];
+              continue;
+            }
+          }
+          out.push(cur);
+        }
+        cur = [s[0], s[1], s[2], s[3], s[4], s[5]];
+      }
+      if (cur) out.push(cur);
+      return out;
+    }
 
     // Build flat positions/colors once. Reused by Low + Medium renderers.
     function buildSegmentBuffers(segments, bounds) {
@@ -333,7 +366,7 @@
     function renderCurrent() {
       clearPreview();
       if (viewer.gcode) {
-        const { segments, bounds, label } = viewer.gcode;
+        const { segments, bounds, label, rawCount } = viewer.gcode;
         if (!segments.length) {
           $('info').textContent = `${label} — geen extrusion segments`;
           requestRender();
@@ -342,7 +375,10 @@
         viewer.previewObject = buildGcodeForQuality(segments, bounds);
         scene.add(viewer.previewObject);
         frameBounds(bounds.min, bounds.max);
-        $('info').textContent = `${label} — ${segments.length} segments · ${viewer.quality}`;
+        const mergedInfo = rawCount && rawCount !== segments.length
+          ? ` (${rawCount} raw → ${segments.length} na merge)`
+          : '';
+        $('info').textContent = `${label} — ${segments.length} segments${mergedInfo} · ${viewer.quality}`;
       } else if (viewer.stl) {
         const { geometry, label } = viewer.stl;
         geometry.computeVertexNormals();
@@ -366,7 +402,14 @@
     }
 
     function showGcodeSegments(segments, bounds, label) {
-      viewer.gcode = { segments, bounds, label };
+      const rawCount = segments.length;
+      const optimized = optimizeSegments(segments);
+      viewer.gcode = {
+        segments: optimized,
+        bounds,
+        label,
+        rawCount,
+      };
       viewer.stl = null;
       renderCurrent();
     }
