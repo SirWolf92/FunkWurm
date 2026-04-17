@@ -137,14 +137,17 @@
       const cy = (minV[1] + maxV[1]) / 2;
       const cz = (minV[2] + maxV[2]) / 2;
       controls.target.set(cx, cy, cz);
-      const size = Math.max(
-        maxV[0] - minV[0],
-        maxV[1] - minV[1],
-        maxV[2] - minV[2],
-        50
-      );
-      const d = size * 1.2;
-      camera.position.set(cx + d, cy + d * 0.5, cz + d);
+
+      const sx = Math.max(maxV[0] - minV[0], 1);
+      const sz = Math.max(maxV[2] - minV[2], 1);
+      // Front face view: camera op -Y kant, kijkend langs +Y. Past X horizontaal, Z verticaal.
+      const fov = camera.fov * Math.PI / 180;
+      const aspect = camera.aspect;
+      const distV = (sz / 2) / Math.tan(fov / 2);
+      const distH = (sx / 2) / (Math.tan(fov / 2) * aspect);
+      const dist = Math.max(distV, distH, 50) * 1.25;
+
+      camera.position.set(cx, cy - dist, cz);
       camera.lookAt(cx, cy, cz);
       requestRender();
     }
