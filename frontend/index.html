@@ -61,6 +61,9 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+    import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+    import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+    import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
     const $ = id => document.getElementById(id);
 
@@ -73,13 +76,19 @@
     camera.position.set(200, 200, 200);
     camera.up.set(0, 0, 1);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(wrap.clientWidth, wrap.clientHeight);
     wrap.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(110, 110, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.12;
+
+    let needsRender = true;
+    const requestRender = () => { needsRender = true; };
+    controls.addEventListener('change', requestRender);
 
     const grid = new THREE.GridHelper(220, 22, 0x444444, 0x222222);
     grid.rotation.x = Math.PI / 2;
@@ -115,9 +124,10 @@
         maxV[2] - minV[2],
         50
       );
-      const d = size * 1.8;
-      camera.position.set(cx + d, cy + d, cz + d);
+      const d = size * 1.2;
+      camera.position.set(cx + d, cy + d * 0.5, cz + d);
       camera.lookAt(cx, cy, cz);
+      requestRender();
     }
 
     function parseGcodeText(text) {
@@ -180,23 +190,61 @@
       return { segments, bounds: { min, max } };
     }
 
+    const EXTRUSION_WIDTH = 0.4;
+    const LAYER_HEIGHT = 0.2;
+    const X_AXIS = new THREE.Vector3(1, 0, 0);
+    const _dir = new THREE.Vector3();
+    const _dummy = new THREE.Object3D();
+
     function showGcodeSegments(segments, bounds, label) {
       clearPreview();
       if (!segments.length) {
         $('info').textContent = label ? `${label} — geen extrusion segments` : 'geen segments';
+        requestRender();
         return;
       }
-      const positions = new Float32Array(segments.length * 6);
+
+      const box = new THREE.BoxGeometry(1, EXTRUSION_WIDTH, LAYER_HEIGHT);
+      const mat = new THREE.MeshLambertMaterial({ vertexColors: false });
+      const mesh = new THREE.InstancedMesh(box, mat, segments.length);
+      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+
+      const color = new THREE.Color();
+      const zMin = bounds.min[2];
+      const zMax = bounds.max[2];
+      const zRange = Math.max(zMax - zMin, 1e-6);
+
+      let written = 0;
       for (let i = 0; i < segments.length; i++) {
-        positions.set(segments[i], i * 6);
+        const s = segments[i];
+        const x0 = s[0], y0 = s[1], z0 = s[2];
+        const x1 = s[3], y1 = s[4], z1 = s[5];
+        const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < 1e-5) continue;
+
+        _dir.set(dx / len, dy / len, dz / len);
+        _dummy.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+        _dummy.quaternion.setFromUnitVectors(X_AXIS, _dir);
+        _dummy.scale.set(len, 1, 1);
+        _dummy.updateMatrix();
+        mesh.setMatrixAt(written, _dummy.matrix);
+
+        const t = (z0 - zMin) / zRange;
+        color.setHSL(0.62 - t * 0.55, 0.7, 0.55);
+        mesh.setColorAt(written, color);
+        written++;
       }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      const mat = new THREE.LineBasicMaterial({ color: 0x4a9eff });
-      previewObject = new THREE.LineSegments(geo, mat);
-      scene.add(previewObject);
+      mesh.count = written;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.frustumCulled = false;
+
+      previewObject = mesh;
+      scene.add(mesh);
       frameBounds(bounds.min, bounds.max);
-      $('info').textContent = `${label} — ${segments.length} segments`;
+      $('info').textContent = `${label} — ${written} extrusion segments`;
+      requestRender();
     }
 
     function showStlGeometry(geometry, label) {
@@ -210,18 +258,25 @@
       frameBounds([bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.max.y, bb.max.z]);
       const tri = geometry.attributes.position.count / 3;
       $('info').textContent = `${label} — STL, ${tri | 0} triangles`;
+      requestRender();
     }
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambient);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    const hemi = new THREE.HemisphereLight(0xddeeff, 0x202030, 0.9);
+    scene.add(hemi);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(200, 200, 400);
     scene.add(dirLight);
+    const fillLight = new THREE.DirectionalLight(0x88aaff, 0.3);
+    fillLight.position.set(-200, -100, 200);
+    scene.add(fillLight);
 
     function animate() {
       requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
+      if (controls.update()) needsRender = true;
+      if (needsRender) {
+        renderer.render(scene, camera);
+        needsRender = false;
+      }
     }
     animate();
 
@@ -229,6 +284,7 @@
       camera.aspect = wrap.clientWidth / wrap.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+      requestRender();
     });
 
     async function loadGcode() {
