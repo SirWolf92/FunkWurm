@@ -140,14 +140,19 @@
 
       const sx = Math.max(maxV[0] - minV[0], 1);
       const sz = Math.max(maxV[2] - minV[2], 1);
-      // Front face view: camera op -Y kant, kijkend langs +Y. Past X horizontaal, Z verticaal.
       const fov = camera.fov * Math.PI / 180;
       const aspect = camera.aspect;
       const distV = (sz / 2) / Math.tan(fov / 2);
       const distH = (sx / 2) / (Math.tan(fov / 2) * aspect);
       const dist = Math.max(distV, distH, 50) * 1.25;
 
-      camera.position.set(cx, cy - dist, cz);
+      // Iets naar rechts gedraaid vanuit de front-face (rotatie ~15° rond Z).
+      const yaw = 15 * Math.PI / 180;
+      camera.position.set(
+        cx + dist * Math.sin(yaw),
+        cy - dist * Math.cos(yaw),
+        cz,
+      );
       camera.lookAt(cx, cy, cz);
       requestRender();
     }
@@ -238,20 +243,8 @@
       return { positions, colors };
     }
 
-    // LOW: flat 1px lines, one draw call, cheapest.
+    // LOW: thick screen-space lines (Line2). Vaste px-dikte ongeacht zoom. Eén draw call.
     function buildGcodeLow(segments, bounds) {
-      const { positions, colors } = buildSegmentBuffers(segments, bounds);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      const mat = new THREE.LineBasicMaterial({ vertexColors: true });
-      const obj = new THREE.LineSegments(geo, mat);
-      obj.frustumCulled = false;
-      return obj;
-    }
-
-    // MEDIUM: thick screen-space lines (Line2). Still one draw call.
-    function buildGcodeMedium(segments, bounds) {
       const { positions, colors } = buildSegmentBuffers(segments, bounds);
       const geo = new LineSegmentsGeometry();
       geo.setPositions(positions);
@@ -260,6 +253,27 @@
         vertexColors: true,
         linewidth: 3,
         worldUnits: false,
+        dashed: false,
+      });
+      mat.resolution.set(wrap.clientWidth, wrap.clientHeight);
+      const obj = new LineSegments2(geo, mat);
+      obj.computeLineDistances();
+      obj.frustumCulled = false;
+      obj.userData.lineMaterial = mat;
+      return obj;
+    }
+
+    // MEDIUM: world-unit ribbons op ware extrusiebreedte. Schaalt mee met zoom,
+    // voelt solide. Nog steeds één draw call.
+    function buildGcodeMedium(segments, bounds) {
+      const { positions, colors } = buildSegmentBuffers(segments, bounds);
+      const geo = new LineSegmentsGeometry();
+      geo.setPositions(positions);
+      geo.setColors(colors);
+      const mat = new LineMaterial({
+        vertexColors: true,
+        linewidth: EXTRUSION_WIDTH,
+        worldUnits: true,
         dashed: false,
       });
       mat.resolution.set(wrap.clientWidth, wrap.clientHeight);
