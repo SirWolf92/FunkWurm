@@ -12,6 +12,7 @@
     #canvas-wrap { width: 100%; height: calc(100vh - 210px); position: relative; }
     #canvas-wrap canvas { display: block; }
     #info { position: absolute; top: 10px; left: 10px; font-size: 11px; color: #aaa; background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 4px; }
+    #fps { position: absolute; top: 10px; right: 10px; font-size: 11px; color: #8c8; background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 4px; font-variant-numeric: tabular-nums; }
     button:disabled { opacity: 0.5; cursor: not-allowed !important; }
   </style>
 </head>
@@ -54,6 +55,7 @@
 
   <div id="canvas-wrap">
     <div id="info">geen bestand geladen</div>
+    <div id="fps">– fps</div>
   </div>
 
   <script type="importmap">
@@ -88,14 +90,13 @@
     camera.up.set(0, 0, 1);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(wrap.clientWidth, wrap.clientHeight);
     wrap.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(110, 110, 0);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.12;
+    controls.enableDamping = false;
 
     let needsRender = true;
     const requestRender = () => { needsRender = true; };
@@ -276,12 +277,23 @@
       return { positions, colors };
     }
 
+    function setLineBounds(geo, bounds) {
+      const { min, max } = bounds;
+      geo.boundingBox = new THREE.Box3(
+        new THREE.Vector3(min[0], min[1], min[2]),
+        new THREE.Vector3(max[0], max[1], max[2]),
+      );
+      geo.boundingSphere = new THREE.Sphere();
+      geo.boundingBox.getBoundingSphere(geo.boundingSphere);
+    }
+
     // LOW: thick screen-space lines (Line2). Vaste px-dikte ongeacht zoom. Eén draw call.
     function buildGcodeLow(segments, bounds) {
       const { positions, colors } = buildSegmentBuffers(segments, bounds);
       const geo = new LineSegmentsGeometry();
       geo.setPositions(positions);
       geo.setColors(colors);
+      setLineBounds(geo, bounds);
       const mat = new LineMaterial({
         vertexColors: true,
         linewidth: 3,
@@ -290,8 +302,6 @@
       });
       mat.resolution.set(wrap.clientWidth, wrap.clientHeight);
       const obj = new LineSegments2(geo, mat);
-      obj.computeLineDistances();
-      obj.frustumCulled = false;
       obj.userData.lineMaterial = mat;
       return obj;
     }
@@ -303,6 +313,7 @@
       const geo = new LineSegmentsGeometry();
       geo.setPositions(positions);
       geo.setColors(colors);
+      setLineBounds(geo, bounds);
       const mat = new LineMaterial({
         vertexColors: true,
         linewidth: EXTRUSION_WIDTH,
@@ -311,8 +322,6 @@
       });
       mat.resolution.set(wrap.clientWidth, wrap.clientHeight);
       const obj = new LineSegments2(geo, mat);
-      obj.computeLineDistances();
-      obj.frustumCulled = false;
       obj.userData.lineMaterial = mat;
       return obj;
     }
@@ -351,7 +360,13 @@
       mesh.count = written;
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.frustumCulled = false;
+      // Frustum culling op mesh-niveau via echte bounds uit de gcode:
+      mesh.boundingBox = new THREE.Box3(
+        new THREE.Vector3(bounds.min[0], bounds.min[1], bounds.min[2]),
+        new THREE.Vector3(bounds.max[0], bounds.max[1], bounds.max[2]),
+      );
+      mesh.boundingSphere = new THREE.Sphere();
+      mesh.boundingBox.getBoundingSphere(mesh.boundingSphere);
       return mesh;
     }
 
@@ -429,12 +444,29 @@
     fillLight.position.set(-200, -100, 200);
     scene.add(fillLight);
 
+    // FPS monitor: toont alleen real render-fps, niet idle frames.
+    const fpsEl = $('fps');
+    let fpsFrames = 0;
+    let fpsLast = performance.now();
+
     function animate() {
       requestAnimationFrame(animate);
       if (controls.update()) needsRender = true;
       if (needsRender) {
         renderer.render(scene, camera);
         needsRender = false;
+        fpsFrames++;
+        const now = performance.now();
+        const dt = now - fpsLast;
+        if (dt >= 500) {
+          fpsEl.textContent = `${Math.round((fpsFrames * 1000) / dt)} fps`;
+          fpsFrames = 0;
+          fpsLast = now;
+        }
+      } else if (performance.now() - fpsLast > 1500) {
+        fpsEl.textContent = 'idle';
+        fpsLast = performance.now();
+        fpsFrames = 0;
       }
     }
     animate();
