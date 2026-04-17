@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <title>FunkWurm — G-code visualizer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0a0a0f; color: #e0e0e0; font-family: system-ui, sans-serif; }
+    header { padding: 12px 20px; background: #14141c; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 16px; }
+    header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+    #status { font-size: 12px; color: #888; }
+    #canvas-wrap { width: 100%; height: calc(100vh - 210px); position: relative; }
+    #canvas-wrap canvas { display: block; }
+    #info { position: absolute; top: 10px; left: 10px; font-size: 11px; color: #aaa; background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 4px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FunkWurm</h1>
+    <span id="status">verbinden…</span>
+    <div style="flex: 1;"></div>
+    <button id="btn-reload" style="padding: 6px 12px; background: #2a3c56; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Herladen</button>
+  </header>
+
+  <div id="upload-zone" style="padding: 16px 20px; background: #14141c; border-bottom: 1px solid #222;">
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+      <label style="cursor: pointer; padding: 8px 16px; background: #2a3c56; color: #fff; border-radius: 4px; font-size: 13px;">
+        📁 Kies bestand
+        <input type="file" id="file-input" accept=".gcode,.gco,.g,.stl" style="display: none;">
+      </label>
+      <span id="file-name" style="font-size: 12px; color: #888;">geen bestand geselecteerd</span>
+      <div style="flex: 1;"></div>
+      <label style="font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 6px;">
+        <input type="checkbox" id="auto-print"> direct printen na upload (PAS OP: geen check!)
+      </label>
+      <button id="btn-upload" disabled style="padding: 8px 16px; background: #4a9eff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">Upload</button>
+    </div>
+    <div id="print-controls" style="margin-top: 12px; display: none; gap: 8px;">
+      <button id="btn-start" style="padding: 6px 14px; background: #22aa55; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">▶ Start print</button>
+      <button id="btn-pause" style="padding: 6px 14px; background: #e0a030; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">⏸ Pause/Resume</button>
+      <button id="btn-cancel" style="padding: 6px 14px; background: #d04040; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">⏹ Cancel</button>
+    </div>
+    <div id="upload-msg" style="margin-top: 8px; font-size: 12px; min-height: 16px;"></div>
+  </div>
+
+  <div id="canvas-wrap">
+    <div id="info">geen bestand geladen</div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const $ = id => document.getElementById(id);
+
+    // --- Three.js setup ---
+    const wrap = $('canvas-wrap');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a0f);
+
+    const camera = new THREE.PerspectiveCamera(50, wrap.clientWidth / wrap.clientHeight, 0.1, 5000);
+    camera.position.set(200, 200, 200);
+    camera.up.set(0, 0, 1);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    wrap.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(110, 110, 0);
+
+    const grid = new THREE.GridHelper(220, 22, 0x444444, 0x222222);
+    grid.rotation.x = Math.PI / 2;
+    grid.position.set(110, 110, 0);
+    scene.add(grid);
+
+    const axes = new THREE.AxesHelper(30);
+    scene.add(axes);
+
+    let gcodeLines = null;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = wrap.clientWidth / wrap.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    });
+
+    async function loadGcode() {
+      $('info').textContent = 'gcode laden…';
+      try {
+        const r = await fetch('/api/gcode');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+
+        if (gcodeLines) {
+          scene.remove(gcodeLines);
+          gcodeLines.geometry.dispose();
+          gcodeLines.material.dispose();
+          gcodeLines = null;
+        }
+
+        if (!data.segments || data.segments.length === 0) {
+          $('info').textContent = data.filename
+            ? `${data.filename} — geen extrusion segments`
+            : 'geen bestand geselecteerd in OctoPrint';
+          return;
+        }
+
+        const positions = new Float32Array(data.segments.length * 6);
+        for (let i = 0; i < data.segments.length; i++) {
+          const s = data.segments[i];
+          positions.set(s, i * 6);
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const mat = new THREE.LineBasicMaterial({ color: 0x4a9eff });
+        gcodeLines = new THREE.LineSegments(geo, mat);
+        scene.add(gcodeLines);
+
+        const b = data.bounds;
+        const cx = (b.min[0] + b.max[0]) / 2;
+        const cy = (b.min[1] + b.max[1]) / 2;
+        const cz = (b.min[2] + b.max[2]) / 2;
+        controls.target.set(cx, cy, cz);
+
+        $('info').textContent = `${data.filename} — ${data.count} segments`;
+      } catch (e) {
+        $('info').textContent = `fout: ${e.message}`;
+      }
+    }
+
+    async function updateStatus() {
+      try {
+        const r = await fetch('/api/status');
+        const data = await r.json();
+        $('status').textContent = data.connected ? '● verbonden' : '○ offline';
+        $('status').style.color = data.connected ? '#22aa55' : '#888';
+      } catch {
+        $('status').textContent = '○ offline';
+      }
+    }
+
+    $('btn-reload').addEventListener('click', loadGcode);
+
+    // --- Upload handling ---
+    let selectedFile = null;
+
+    $('file-input').addEventListener('change', e => {
+      selectedFile = e.target.files[0];
+      if (selectedFile) {
+        $('file-name').textContent = selectedFile.name + ` (${(selectedFile.size / 1024).toFixed(1)} KB)`;
+        $('btn-upload').disabled = false;
+        $('upload-msg').textContent = '';
+
+        if (selectedFile.name.toLowerCase().endsWith('.stl')) {
+          $('upload-msg').innerHTML = '<span style="color: #e0a030;">⚠ STL vereist slicing plugin in OctoPrint. Slice lokaal voor beste resultaat.</span>';
+        }
+      }
+    });
+
+    $('btn-upload').addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      const autoPrint = $('auto-print').checked;
+
+      if (autoPrint) {
+        const ready = await fetch('/api/printer-ready').then(r => r.json());
+        if (!ready.ready) {
+          $('upload-msg').innerHTML = `<span style="color: #d04040;">✗ Kan niet direct printen: ${ready.reason}</span>`;
+          return;
+        }
+        if (!confirm(`Direct printen zonder preview?\n\nBestand: ${selectedFile.name}\n\nWeet je zeker dat:\n- Het bed schoon is\n- Juiste filament is geladen\n- Printer is geleveld`)) {
+          return;
+        }
+      }
+
+      const fd = new FormData();
+      fd.append('file', selectedFile);
+      fd.append('auto_print', autoPrint);
+      fd.append('auto_select', 'true');
+
+      $('btn-upload').disabled = true;
+      $('upload-msg').innerHTML = '<span style="color: #888;">Uploaden…</span>';
+
+      try {
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await r.json();
+
+        if (!r.ok) {
+          $('upload-msg').innerHTML = `<span style="color: #d04040;">✗ ${data.detail}</span>`;
+        } else {
+          $('upload-msg').innerHTML = `<span style="color: #22aa55;">✓ ${data.filename} geüpload${data.printing ? ' — print gestart' : ''}</span>`;
+          $('print-controls').style.display = 'flex';
+
+          setTimeout(() => loadGcode(), 2000);
+        }
+      } catch (e) {
+        $('upload-msg').innerHTML = `<span style="color: #d04040;">✗ ${e.message}</span>`;
+      } finally {
+        $('btn-upload').disabled = false;
+      }
+    });
+
+    $('btn-start').addEventListener('click', async () => {
+      const ready = await fetch('/api/printer-ready').then(r => r.json());
+      if (!ready.ready) {
+        alert('Kan niet starten: ' + ready.reason);
+        return;
+      }
+      if (!confirm('Print starten?')) return;
+
+      const r = await fetch('/api/print/start', { method: 'POST' });
+      if (!r.ok) alert('Start mislukt: ' + await r.text());
+    });
+
+    $('btn-pause').addEventListener('click', async () => {
+      await fetch('/api/print/pause', { method: 'POST' });
+    });
+
+    $('btn-cancel').addEventListener('click', async () => {
+      if (!confirm('Print annuleren? Dit kan niet ongedaan gemaakt worden.')) return;
+      await fetch('/api/print/cancel', { method: 'POST' });
+    });
+
+    // --- Drag and drop ---
+    const uploadZone = $('upload-zone');
+    ['dragover', 'dragenter'].forEach(evt => {
+      uploadZone.addEventListener(evt, e => {
+        e.preventDefault();
+        uploadZone.style.background = '#1a2030';
+      });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      uploadZone.addEventListener(evt, e => {
+        e.preventDefault();
+        uploadZone.style.background = '#14141c';
+      });
+    });
+    uploadZone.addEventListener('drop', e => {
+      if (e.dataTransfer.files.length > 0) {
+        $('file-input').files = e.dataTransfer.files;
+        $('file-input').dispatchEvent(new Event('change'));
+      }
+    });
+
+    // --- Init ---
+    updateStatus();
+    loadGcode();
+    setInterval(updateStatus, 5000);
+  </script>
+</body>
+</html>
