@@ -60,6 +60,7 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 
     const $ = id => document.getElementById(id);
 
@@ -88,7 +89,134 @@
     const axes = new THREE.AxesHelper(30);
     scene.add(axes);
 
-    let gcodeLines = null;
+    let previewObject = null;
+
+    function clearPreview() {
+      if (previewObject) {
+        scene.remove(previewObject);
+        previewObject.geometry?.dispose?.();
+        if (Array.isArray(previewObject.material)) {
+          previewObject.material.forEach(m => m.dispose());
+        } else {
+          previewObject.material?.dispose?.();
+        }
+        previewObject = null;
+      }
+    }
+
+    function frameBounds(minV, maxV) {
+      const cx = (minV[0] + maxV[0]) / 2;
+      const cy = (minV[1] + maxV[1]) / 2;
+      const cz = (minV[2] + maxV[2]) / 2;
+      controls.target.set(cx, cy, cz);
+      const size = Math.max(
+        maxV[0] - minV[0],
+        maxV[1] - minV[1],
+        maxV[2] - minV[2],
+        50
+      );
+      const d = size * 1.8;
+      camera.position.set(cx + d, cy + d, cz + d);
+      camera.lookAt(cx, cy, cz);
+    }
+
+    function parseGcodeText(text) {
+      const segments = [];
+      let x = 0, y = 0, z = 0, ePrev = 0;
+      let abs = true;
+      const min = [Infinity, Infinity, Infinity];
+      const max = [-Infinity, -Infinity, -Infinity];
+
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        const semi = line.indexOf(';');
+        if (semi >= 0) line = line.slice(0, semi);
+        line = line.trim();
+        if (!line) continue;
+        const parts = line.split(/\s+/);
+        const cmd = parts[0].toUpperCase();
+
+        if (cmd === 'G90') { abs = true; continue; }
+        if (cmd === 'G91') { abs = false; continue; }
+        if (cmd === 'G92') {
+          for (let j = 1; j < parts.length; j++) {
+            if (parts[j][0].toUpperCase() === 'E') {
+              const v = parseFloat(parts[j].slice(1));
+              if (!isNaN(v)) ePrev = v;
+            }
+          }
+          continue;
+        }
+        if (cmd !== 'G0' && cmd !== 'G1') continue;
+
+        let nx = x, ny = y, nz = z, ne = ePrev;
+        for (let j = 1; j < parts.length; j++) {
+          const axis = parts[j][0].toUpperCase();
+          const v = parseFloat(parts[j].slice(1));
+          if (isNaN(v)) continue;
+          if (axis === 'X') nx = abs ? v : x + v;
+          else if (axis === 'Y') ny = abs ? v : y + v;
+          else if (axis === 'Z') nz = abs ? v : z + v;
+          else if (axis === 'E') ne = abs ? v : ePrev + v;
+        }
+
+        const extruding = ne > ePrev + 1e-6;
+        if (extruding && (nx !== x || ny !== y || nz !== z)) {
+          segments.push([x, y, z, nx, ny, nz]);
+          for (let k = 0; k < 3; k++) {
+            const v = [nx, ny, nz][k];
+            if (v < min[k]) min[k] = v;
+            if (v > max[k]) max[k] = v;
+          }
+        }
+        x = nx; y = ny; z = nz; ePrev = ne;
+      }
+
+      if (!segments.length) {
+        min[0] = min[1] = min[2] = 0;
+        max[0] = max[1] = max[2] = 0;
+      }
+      return { segments, bounds: { min, max } };
+    }
+
+    function showGcodeSegments(segments, bounds, label) {
+      clearPreview();
+      if (!segments.length) {
+        $('info').textContent = label ? `${label} — geen extrusion segments` : 'geen segments';
+        return;
+      }
+      const positions = new Float32Array(segments.length * 6);
+      for (let i = 0; i < segments.length; i++) {
+        positions.set(segments[i], i * 6);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const mat = new THREE.LineBasicMaterial({ color: 0x4a9eff });
+      previewObject = new THREE.LineSegments(geo, mat);
+      scene.add(previewObject);
+      frameBounds(bounds.min, bounds.max);
+      $('info').textContent = `${label} — ${segments.length} segments`;
+    }
+
+    function showStlGeometry(geometry, label) {
+      clearPreview();
+      geometry.computeVertexNormals();
+      geometry.computeBoundingBox();
+      const bb = geometry.boundingBox;
+      const mat = new THREE.MeshPhongMaterial({ color: 0x4a9eff, specular: 0x222222, shininess: 40, flatShading: false });
+      previewObject = new THREE.Mesh(geometry, mat);
+      scene.add(previewObject);
+      frameBounds([bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.max.y, bb.max.z]);
+      const tri = geometry.attributes.position.count / 3;
+      $('info').textContent = `${label} — STL, ${tri | 0} triangles`;
+    }
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(200, 200, 400);
+    scene.add(dirLight);
 
     function animate() {
       requestAnimationFrame(animate);
@@ -110,41 +238,35 @@
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
 
-        if (gcodeLines) {
-          scene.remove(gcodeLines);
-          gcodeLines.geometry.dispose();
-          gcodeLines.material.dispose();
-          gcodeLines = null;
-        }
-
         if (!data.segments || data.segments.length === 0) {
+          clearPreview();
           $('info').textContent = data.filename
             ? `${data.filename} — geen extrusion segments`
             : 'geen bestand geselecteerd in OctoPrint';
           return;
         }
-
-        const positions = new Float32Array(data.segments.length * 6);
-        for (let i = 0; i < data.segments.length; i++) {
-          const s = data.segments[i];
-          positions.set(s, i * 6);
-        }
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const mat = new THREE.LineBasicMaterial({ color: 0x4a9eff });
-        gcodeLines = new THREE.LineSegments(geo, mat);
-        scene.add(gcodeLines);
-
-        const b = data.bounds;
-        const cx = (b.min[0] + b.max[0]) / 2;
-        const cy = (b.min[1] + b.max[1]) / 2;
-        const cz = (b.min[2] + b.max[2]) / 2;
-        controls.target.set(cx, cy, cz);
-
-        $('info').textContent = `${data.filename} — ${data.count} segments`;
+        showGcodeSegments(data.segments, data.bounds, data.filename || 'gcode');
       } catch (e) {
         $('info').textContent = `fout: ${e.message}`;
+      }
+    }
+
+    async function previewLocalFile(file) {
+      $('info').textContent = `${file.name} — preview laden…`;
+      const name = file.name.toLowerCase();
+      try {
+        if (name.endsWith('.stl')) {
+          const buf = await file.arrayBuffer();
+          const loader = new STLLoader();
+          const geo = loader.parse(buf);
+          showStlGeometry(geo, file.name);
+        } else {
+          const text = await file.text();
+          const { segments, bounds } = parseGcodeText(text);
+          showGcodeSegments(segments, bounds, file.name);
+        }
+      } catch (e) {
+        $('info').textContent = `preview fout: ${e.message}`;
       }
     }
 
@@ -174,6 +296,8 @@
         if (selectedFile.name.toLowerCase().endsWith('.stl')) {
           $('upload-msg').innerHTML = '<span style="color: #e0a030;">⚠ STL vereist slicing plugin in OctoPrint. Slice lokaal voor beste resultaat.</span>';
         }
+
+        previewLocalFile(selectedFile);
       }
     });
 
