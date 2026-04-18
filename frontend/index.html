@@ -150,6 +150,15 @@
       controls.target.set(cx, cy, cz);
       camera.position.set(cx, cy - dist, cz);
       camera.lookAt(cx, cy, cz);
+
+      // Camera-pan: naar rechts (+X) en omhoog (+Z). Zowel camera als target
+      // verschuiven met hetzelfde bedrag zodat de view-richting parallel blijft.
+      const panX = sx * 0.2;
+      const panZ = sz * 0.2;
+      camera.position.x += panX;
+      camera.position.z += panZ;
+      controls.target.x += panX;
+      controls.target.z += panZ;
       requestRender();
     }
 
