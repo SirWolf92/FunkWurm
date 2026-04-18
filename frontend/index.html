@@ -318,6 +318,15 @@
             <input type="range" min="0.05" max="1" step="0.01" data-setting="layerHeight"><span class="val"></span>
           </div>
           <div class="row">
+            <span class="label-group"><label>Shape</label>
+              <span class="help" data-tip="Box = 12 triangles per segment, met zichtbare zijkanten. Ribbon = 2 triangles per segment (platte strook op XY). Ribbon is 6x goedkoper op GPU en ziet er van bovenaf identiek uit."></span>
+            </span>
+            <select data-setting="volumeShape">
+              <option value="box">Box</option>
+              <option value="ribbon">Ribbon</option>
+            </select>
+          </div>
+          <div class="row">
             <span class="label-group"><label>Shaded</label>
               <span class="help" data-tip="Aan = per-fragment lighting (mooier, 3D shading op zijkanten). Uit = platte kleur zonder lighting, fors sneller op integrated GPUs. Uitzetten als je FPS-drops hebt in High mode."></span>
             </span>
@@ -486,6 +495,7 @@
       extrusionWidth: 0.1,
       layerHeight: 0.18,
       shaded: true,
+      volumeShape: 'box',
       // Scene
       showGrid: true,
       showAxes: true,
@@ -511,6 +521,7 @@
       segmentStride: 3,
       enableDamping: false,
       shaded: false,
+      volumeShape: 'ribbon',
       showGrid: false,
       showAxes: false,
       showBuildPlate: false,
@@ -826,16 +837,21 @@
       return obj;
     }
 
-    // HIGH: solid extrusion boxes per segment via InstancedMesh.
+    // HIGH: solid extrusion volumes per segment via InstancedMesh.
     function buildGcodeHigh(segments, bounds) {
       const n = segments.length;
-      const box = new THREE.BoxGeometry(1, settings.extrusionWidth, settings.layerHeight);
-      // Shaded = lighting per fragment (duurder, mooier). Onshaded = MeshBasic
-      // (geen fragment-lighting, pure vertex-color; veel sneller op integrated GPU).
+      // Box = 12 triangles per segment; Ribbon = 2 (PlaneGeometry op XY-vlak).
+      // Ribbon ziet er van typische top-schuine kijkhoek bijna identiek uit
+      // maar is 6x goedkoper op de GPU.
+      const geo = settings.volumeShape === 'ribbon'
+        ? new THREE.PlaneGeometry(1, settings.extrusionWidth)
+        : new THREE.BoxGeometry(1, settings.extrusionWidth, settings.layerHeight);
+      // Ribbon moet dubbelzijdig zodat hij van onder ook zichtbaar is.
+      const matOpts = settings.volumeShape === 'ribbon' ? { side: THREE.DoubleSide } : {};
       const mat = settings.shaded
-        ? new THREE.MeshLambertMaterial()
-        : new THREE.MeshBasicMaterial();
-      const mesh = new THREE.InstancedMesh(box, mat, n);
+        ? new THREE.MeshLambertMaterial(matOpts)
+        : new THREE.MeshBasicMaterial(matOpts);
+      const mesh = new THREE.InstancedMesh(geo, mat, n);
       mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
 
       const zMin = bounds.min[2];
@@ -987,6 +1003,16 @@
     const fpsEl = $('fps');
     let fpsFrames = 0;
     let fpsLast = performance.now();
+
+    // GPU info als tooltip op FPS-badge. Helpt diagnoseren: integrated vs discrete.
+    try {
+      const gl = renderer.getContext();
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      if (dbg) {
+        const gpu = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+        fpsEl.title = `GPU: ${gpu}`;
+      }
+    } catch {}
 
     function animate() {
       requestAnimationFrame(animate);
@@ -1184,7 +1210,7 @@
     const REBUILD = new Set([
       'quality', 'mediumLinewidth', 'mediumWorldUnits',
       'extrusionWidth', 'layerHeight', 'colorScheme', 'solidColor',
-      'segmentStride', 'shaded',
+      'segmentStride', 'shaded', 'volumeShape',
     ]);
     const RECREATE_RENDERER = new Set(['antialias']);
     const REFRAME = new Set(['panX', 'panZ']);
