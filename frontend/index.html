@@ -15,40 +15,185 @@
     #fps { position: absolute; top: 10px; right: 10px; font-size: 11px; color: #8c8; background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 4px; font-variant-numeric: tabular-nums; }
     button:disabled { opacity: 0.5; cursor: not-allowed !important; }
 
-    /* Settings panel */
+    /* Settings panel — refreshed UI */
+    :root {
+      --bg-panel: #0f1015;
+      --bg-section: #15161d;
+      --bg-input: #1c1d26;
+      --bg-input-hover: #242633;
+      --border: #26272f;
+      --border-strong: #2f313c;
+      --text: #e6e8ef;
+      --text-dim: #8b8e99;
+      --text-fade: #5d606b;
+      --accent: #5aa7ff;
+      --accent-dim: #3a7bd5;
+      --danger: #d04060;
+      --radius: 6px;
+    }
+
+    #btn-settings {
+      padding: 6px 12px; background: #1c1d26; color: var(--text); border: 1px solid var(--border);
+      border-radius: var(--radius); cursor: pointer; font-size: 12px; font-weight: 500;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    #btn-settings:hover { background: var(--bg-input-hover); border-color: var(--accent-dim); }
+
     #settings-panel {
-      position: fixed; top: 0; right: 0; width: 340px; height: 100vh;
-      background: #101018; border-left: 1px solid #222;
-      transform: translateX(100%); transition: transform 0.18s ease;
+      position: fixed; top: 0; right: 0; width: 360px; height: 100vh;
+      background: var(--bg-panel); border-left: 1px solid var(--border);
+      transform: translateX(100%); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       z-index: 100; display: flex; flex-direction: column;
-      box-shadow: -8px 0 24px rgba(0,0,0,0.4);
+      box-shadow: -12px 0 40px rgba(0,0,0,0.5);
     }
     #settings-panel.open { transform: translateX(0); }
-    #settings-panel > header { padding: 14px 18px; border-bottom: 1px solid #222; }
-    #settings-panel > header h2 { margin: 0; font-size: 14px; font-weight: 600; flex: 1; }
-    #settings-panel .body { flex: 1; overflow-y: auto; padding: 8px 18px 18px; }
-    #settings-panel section { margin: 14px 0; }
-    #settings-panel section h3 {
-      margin: 0 0 8px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-      color: #7aa; border-bottom: 1px solid #222; padding-bottom: 4px;
+    #settings-panel > header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; background: var(--bg-section);
     }
-    #settings-panel .row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; color: #bbb; }
-    #settings-panel .row label { flex: 1; }
-    #settings-panel .row input[type=range] { flex: 1.2; min-width: 0; }
-    #settings-panel .row input[type=number] { width: 70px; }
-    #settings-panel .row select, #settings-panel .row input[type=number] {
-      background: #1a1a24; color: #ddd; border: 1px solid #333; border-radius: 4px; padding: 3px 6px; font-size: 12px;
+    #settings-panel > header h2 {
+      margin: 0; font-size: 13px; font-weight: 600; flex: 1;
+      text-transform: uppercase; letter-spacing: 0.1em; color: var(--text);
     }
-    #settings-panel .row .val { width: 38px; text-align: right; font-variant-numeric: tabular-nums; color: #999; font-size: 11px; }
+    #btn-close-settings {
+      background: none; color: var(--text-dim); border: none; font-size: 22px; line-height: 1;
+      cursor: pointer; padding: 0 4px; transition: color 0.15s;
+    }
+    #btn-close-settings:hover { color: var(--text); }
+
+    #settings-panel .body { flex: 1; overflow-y: auto; padding: 12px 16px 20px; }
+    #settings-panel .body::-webkit-scrollbar { width: 8px; }
+    #settings-panel .body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+    #settings-panel .body::-webkit-scrollbar-track { background: transparent; }
+
+    #settings-panel details {
+      background: var(--bg-section); border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 10px; overflow: hidden;
+    }
+    #settings-panel details[open] { border-color: var(--border-strong); }
+    #settings-panel summary {
+      list-style: none; cursor: pointer; padding: 10px 14px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em;
+      color: var(--accent); user-select: none; position: relative;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #settings-panel summary::-webkit-details-marker { display: none; }
+    #settings-panel summary::after {
+      content: '▸'; margin-left: auto; color: var(--text-fade); font-size: 10px;
+      transition: transform 0.15s;
+    }
+    #settings-panel details[open] summary::after { transform: rotate(90deg); }
+    #settings-panel summary:hover { background: var(--bg-input); }
+    #settings-panel .section-body { padding: 6px 14px 12px; }
+
+    #settings-panel .row {
+      display: flex; align-items: center; gap: 10px; padding: 6px 0;
+      font-size: 12px; color: var(--text);
+    }
+    #settings-panel .row .label-group {
+      flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0;
+    }
+    #settings-panel .row label { color: var(--text); cursor: default; }
+
+    /* Help tooltip */
+    .help {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--bg-input); color: var(--text-dim);
+      font-size: 9px; font-weight: 700; cursor: help;
+      border: 1px solid var(--border-strong); flex-shrink: 0;
+      position: relative;
+    }
+    .help:hover { color: var(--accent); border-color: var(--accent-dim); }
+    .help::before {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 8px); right: 0;
+      background: #0a0b11; color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: var(--radius);
+      padding: 8px 10px; font-size: 11px; font-weight: 400;
+      line-height: 1.4; width: 240px;
+      white-space: normal; text-align: left;
+      opacity: 0; pointer-events: none; transform: translateY(4px);
+      transition: opacity 0.15s, transform 0.15s;
+      z-index: 200; text-transform: none; letter-spacing: 0;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .help:hover::before { opacity: 1; transform: translateY(0); }
+
+    /* Custom range slider */
+    #settings-panel input[type=range] {
+      flex: 1.2; min-width: 0; appearance: none; background: transparent;
+      height: 20px; cursor: pointer;
+    }
+    #settings-panel input[type=range]::-webkit-slider-runnable-track {
+      height: 4px; background: var(--bg-input); border-radius: 2px;
+    }
+    #settings-panel input[type=range]::-moz-range-track {
+      height: 4px; background: var(--bg-input); border-radius: 2px;
+    }
+    #settings-panel input[type=range]::-webkit-slider-thumb {
+      appearance: none; width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent); margin-top: -5px; cursor: grab;
+      box-shadow: 0 0 0 2px var(--bg-panel);
+      transition: transform 0.1s;
+    }
+    #settings-panel input[type=range]::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%; border: none;
+      background: var(--accent); cursor: grab; box-shadow: 0 0 0 2px var(--bg-panel);
+    }
+    #settings-panel input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
+    #settings-panel input[type=range]:active::-webkit-slider-thumb { cursor: grabbing; }
+
+    /* Custom checkbox */
+    #settings-panel input[type=checkbox] {
+      appearance: none; width: 32px; height: 18px; border-radius: 9px;
+      background: var(--bg-input); border: 1px solid var(--border-strong);
+      position: relative; cursor: pointer; transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    #settings-panel input[type=checkbox]::after {
+      content: ''; position: absolute; top: 1px; left: 1px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--text-dim); transition: transform 0.15s, background 0.15s;
+    }
+    #settings-panel input[type=checkbox]:checked { background: var(--accent-dim); border-color: var(--accent); }
+    #settings-panel input[type=checkbox]:checked::after { transform: translateX(14px); background: #fff; }
+
+    /* Select + number */
+    #settings-panel select, #settings-panel input[type=number] {
+      background: var(--bg-input); color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: var(--radius);
+      padding: 4px 8px; font-size: 12px; font-family: inherit;
+    }
+    #settings-panel select:hover, #settings-panel input[type=number]:hover { border-color: var(--accent-dim); }
+    #settings-panel select:focus, #settings-panel input[type=number]:focus {
+      outline: none; border-color: var(--accent);
+    }
+    #settings-panel input[type=number] { width: 70px; }
+
+    /* Color input */
+    #settings-panel input[type=color] {
+      width: 32px; height: 24px; border: 1px solid var(--border-strong);
+      border-radius: var(--radius); background: transparent; cursor: pointer; padding: 0;
+    }
+    #settings-panel input[type=color]::-webkit-color-swatch { border: none; border-radius: 4px; }
+    #settings-panel input[type=color]::-moz-color-swatch { border: none; border-radius: 4px; }
+
+    #settings-panel .row .val {
+      min-width: 42px; text-align: right; font-variant-numeric: tabular-nums;
+      color: var(--text-dim); font-size: 11px; font-weight: 500;
+      background: var(--bg-input); padding: 2px 6px; border-radius: 4px;
+    }
+
     #settings-panel button.panel-btn {
-      width: 100%; padding: 8px; margin-top: 8px; background: #2a3c56; color: #fff;
-      border: none; border-radius: 4px; cursor: pointer; font-size: 12px;
+      width: 100%; padding: 9px; margin-top: 10px;
+      background: var(--accent-dim); color: #fff;
+      border: none; border-radius: var(--radius); cursor: pointer; font-size: 12px;
+      font-weight: 500; transition: background 0.15s;
     }
-    #settings-panel button.danger { background: #4a2030; }
-    #btn-settings {
-      padding: 6px 12px; background: #2a3c56; color: #fff; border: none;
-      border-radius: 4px; cursor: pointer; font-size: 12px;
-    }
+    #settings-panel button.panel-btn:hover { background: var(--accent); }
+    #settings-panel button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+    #settings-panel button.danger:hover { background: var(--danger); color: #fff; }
   </style>
 </head>
 <body>
@@ -60,94 +205,200 @@
     <button id="btn-reload" style="padding: 6px 12px; background: #2a3c56; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Herladen</button>
   </header>
 
-  <aside id="settings-panel">
-    <header style="display: flex; align-items: center;">
+  <aside id="settings-panel" aria-label="Settings">
+    <header>
       <h2>Settings</h2>
-      <button id="btn-close-settings" style="background: none; color: #aaa; border: none; font-size: 20px; cursor: pointer; padding: 0 4px;">×</button>
+      <button id="btn-close-settings" aria-label="Close">×</button>
     </header>
     <div class="body">
-      <section>
-        <h3>Rendering</h3>
-        <div class="row"><label>Quality</label>
-          <select data-setting="quality">
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </div>
-        <div class="row"><label>Antialiasing</label><input type="checkbox" data-setting="antialias"></div>
-        <div class="row"><label>Pixel ratio</label>
-          <input type="range" min="0.5" max="2" step="0.25" data-setting="pixelRatio"><span class="val"></span>
-        </div>
-        <div class="row"><label>Frustum culling</label><input type="checkbox" data-setting="frustumCulling"></div>
-      </section>
 
-      <section>
-        <h3>Camera</h3>
-        <div class="row"><label>Field of view</label>
-          <input type="range" min="20" max="90" step="1" data-setting="fov"><span class="val"></span>
+      <details open>
+        <summary>Rendering</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Quality</label>
+              <span class="help" data-tip="Low = dunne lijnen, sneldraaierig. Medium = dikke lijnen met vaste px-dikte. High = echte 3D extrusie-volumes per segment (mooiste, maar het zwaarst)."></span>
+            </span>
+            <select data-setting="quality">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Antialiasing</label>
+              <span class="help" data-tip="Smoothe randen van lijnen en volumes. Geeft fors FPS-verlies op integrated GPUs. Uit = sneller, karteliger."></span>
+            </span>
+            <input type="checkbox" data-setting="antialias">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Pixel ratio</label>
+              <span class="help" data-tip="Aantal gerenderde pixels per CSS-pixel. 0.5 = wazig maar ~4× sneller. 1 = scherp. 2 = retina-quality maar duur."></span>
+            </span>
+            <input type="range" min="0.5" max="2" step="0.25" data-setting="pixelRatio"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Frustum culling</label>
+              <span class="help" data-tip="Objecten buiten het camerabeeld worden overgeslagen. Aanbevolen aan; helpt als je inzoomt op een detail."></span>
+            </span>
+            <input type="checkbox" data-setting="frustumCulling">
+          </div>
         </div>
-        <div class="row"><label>Pan X</label>
-          <input type="range" min="-0.5" max="0.5" step="0.05" data-setting="panX"><span class="val"></span>
-        </div>
-        <div class="row"><label>Pan Z</label>
-          <input type="range" min="-0.5" max="0.5" step="0.05" data-setting="panZ"><span class="val"></span>
-        </div>
-        <div class="row"><label>Damping</label><input type="checkbox" data-setting="enableDamping"></div>
-        <button class="panel-btn" id="btn-reframe">Reframe op bestand</button>
-      </section>
+      </details>
 
-      <section>
-        <h3>Lines (Medium)</h3>
-        <div class="row"><label>Linewidth (px)</label>
-          <input type="range" min="1" max="15" step="1" data-setting="mediumLinewidth"><span class="val"></span>
+      <details open>
+        <summary>Camera</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Field of view</label>
+              <span class="help" data-tip="Kijkhoek in graden. Lager (~35°) = telefoto-vlak, minder perspectiefvertekening. Hoger (~80°) = fisheye, meer in beeld."></span>
+            </span>
+            <input type="range" min="20" max="90" step="1" data-setting="fov"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Pan X</label>
+              <span class="help" data-tip="Horizontale offset van de camera bij reframe, als fractie van objectbreedte. Positief = camera schuift naar rechts, object komt links in beeld."></span>
+            </span>
+            <input type="range" min="-0.5" max="0.5" step="0.05" data-setting="panX"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Pan Z</label>
+              <span class="help" data-tip="Verticale offset. Positief = camera omhoog, object zakt in beeld."></span>
+            </span>
+            <input type="range" min="-0.5" max="0.5" step="0.05" data-setting="panZ"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Damping</label>
+              <span class="help" data-tip="Camera blijft nog even doordraaien na loslaten muis. Aan = glad/cinematic. Uit = snappy/direct."></span>
+            </span>
+            <input type="checkbox" data-setting="enableDamping">
+          </div>
+          <button class="panel-btn" id="btn-reframe">Reframe op bestand</button>
         </div>
-        <div class="row"><label>World units</label><input type="checkbox" data-setting="mediumWorldUnits"></div>
-      </section>
+      </details>
 
-      <section>
-        <h3>Volumes (High)</h3>
-        <div class="row"><label>Extrusion width (mm)</label>
-          <input type="range" min="0.1" max="2" step="0.05" data-setting="extrusionWidth"><span class="val"></span>
+      <details>
+        <summary>Lines (Medium quality)</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Linewidth</label>
+              <span class="help" data-tip="Dikte van de extrusie-lijnen in pixels. Alleen actief wanneer 'World units' uit staat."></span>
+            </span>
+            <input type="range" min="1" max="15" step="1" data-setting="mediumLinewidth"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>World units</label>
+              <span class="help" data-tip="Gebruik 'Extrusion width' (mm) i.p.v. pixels voor lijndikte. Lijnen schalen met zoom. Duurder bij dik inzoomen."></span>
+            </span>
+            <input type="checkbox" data-setting="mediumWorldUnits">
+          </div>
         </div>
-        <div class="row"><label>Layer height (mm)</label>
-          <input type="range" min="0.05" max="1" step="0.01" data-setting="layerHeight"><span class="val"></span>
-        </div>
-      </section>
+      </details>
 
-      <section>
-        <h3>Scene</h3>
-        <div class="row"><label>Grid</label><input type="checkbox" data-setting="showGrid"></div>
-        <div class="row"><label>Axes</label><input type="checkbox" data-setting="showAxes"></div>
-        <div class="row"><label>Build plate</label><input type="checkbox" data-setting="showBuildPlate"></div>
-        <div class="row"><label>Bed X (mm)</label><input type="number" data-setting="bedSizeX" min="50" max="500" step="10"></div>
-        <div class="row"><label>Bed Y (mm)</label><input type="number" data-setting="bedSizeY" min="50" max="500" step="10"></div>
-        <div class="row"><label>Background</label><input type="color" data-setting="bgColor"></div>
-      </section>
+      <details>
+        <summary>Volumes (High quality)</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Extrusion width (mm)</label>
+              <span class="help" data-tip="Breedte van het box-volume per gcode-segment. Typisch 0.4mm (nozzle). Lager = slanker. Alleen actief in High mode."></span>
+            </span>
+            <input type="range" min="0.1" max="2" step="0.05" data-setting="extrusionWidth"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Layer height (mm)</label>
+              <span class="help" data-tip="Hoogte van het box-volume per segment. Match met je echte laaghoogte (bijv. 0.2mm) voor realistische preview."></span>
+            </span>
+            <input type="range" min="0.05" max="1" step="0.01" data-setting="layerHeight"><span class="val"></span>
+          </div>
+        </div>
+      </details>
 
-      <section>
-        <h3>Lighting</h3>
-        <div class="row"><label>Hemisphere</label>
-          <input type="range" min="0" max="2" step="0.1" data-setting="ambientIntensity"><span class="val"></span>
+      <details>
+        <summary>Scene</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Grid</label>
+              <span class="help" data-tip="Rasterlijnen op bed-hoogte (Z=0). Helpt bij dieptegevoel."></span>
+            </span>
+            <input type="checkbox" data-setting="showGrid">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Axes</label>
+              <span class="help" data-tip="X (rood), Y (groen), Z (blauw) assen bij origin."></span>
+            </span>
+            <input type="checkbox" data-setting="showAxes">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Build plate</label>
+              <span class="help" data-tip="Semi-transparant vlak als printerbed onder het object."></span>
+            </span>
+            <input type="checkbox" data-setting="showBuildPlate">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Bed X (mm)</label>
+              <span class="help" data-tip="Breedte van het printerbed. Bepaalt grid en buildplate."></span>
+            </span>
+            <input type="number" data-setting="bedSizeX" min="50" max="500" step="10">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Bed Y (mm)</label>
+              <span class="help" data-tip="Diepte van het printerbed."></span>
+            </span>
+            <input type="number" data-setting="bedSizeY" min="50" max="500" step="10">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Background</label>
+              <span class="help" data-tip="Achtergrondkleur van de 3D scene."></span>
+            </span>
+            <input type="color" data-setting="bgColor">
+          </div>
         </div>
-        <div class="row"><label>Directional</label>
-          <input type="range" min="0" max="2" step="0.1" data-setting="dirIntensity"><span class="val"></span>
-        </div>
-        <div class="row"><label>Fill</label>
-          <input type="range" min="0" max="1" step="0.05" data-setting="fillIntensity"><span class="val"></span>
-        </div>
-      </section>
+      </details>
 
-      <section>
-        <h3>Colors</h3>
-        <div class="row"><label>Scheme</label>
-          <select data-setting="colorScheme">
-            <option value="layer">Layer height</option>
-            <option value="solid">Solid</option>
-          </select>
+      <details>
+        <summary>Lighting</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Hemisphere</label>
+              <span class="help" data-tip="Omnidirectioneel hemelpracht (hemel-naar-grond gradient). Basis ambient."></span>
+            </span>
+            <input type="range" min="0" max="2" step="0.1" data-setting="ambientIntensity"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Directional</label>
+              <span class="help" data-tip="Hoofdlicht van boven-rechts — simuleert zonlicht, geeft de 3D vormen hun schaduw-kant."></span>
+            </span>
+            <input type="range" min="0" max="2" step="0.1" data-setting="dirIntensity"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Fill</label>
+              <span class="help" data-tip="Zachter invullicht van links-onder tegen te donkere schaduwen."></span>
+            </span>
+            <input type="range" min="0" max="1" step="0.05" data-setting="fillIntensity"><span class="val"></span>
+          </div>
         </div>
-        <div class="row"><label>Solid color</label><input type="color" data-setting="solidColor"></div>
-      </section>
+      </details>
+
+      <details>
+        <summary>Colors</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Scheme</label>
+              <span class="help" data-tip="Layer height = blauw-naar-rood gradient per Z. Solid = één kleur voor alles."></span>
+            </span>
+            <select data-setting="colorScheme">
+              <option value="layer">Layer height</option>
+              <option value="solid">Solid</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Solid color</label>
+              <span class="help" data-tip="Gebruikte kleur wanneer Scheme op Solid staat."></span>
+            </span>
+            <input type="color" data-setting="solidColor">
+          </div>
+        </div>
+      </details>
 
       <button class="panel-btn danger" id="btn-reset-settings">Reset naar defaults</button>
     </div>
