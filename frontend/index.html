@@ -249,6 +249,24 @@
             </span>
             <input type="range" min="1" max="10" step="1" data-setting="segmentStride"><span class="val"></span>
           </div>
+          <div class="row">
+            <span class="label-group"><label>Tone mapping</label>
+              <span class="help" data-tip="Hoe HDR licht wordt gecomprimeerd naar zichtbare kleuren. ACES = filmisch (default). Reinhard = softer, behoudt meer contrast. None = rauw (kleuren klemmen hard naar wit)."></span>
+            </span>
+            <select data-setting="toneMapping">
+              <option value="none">None</option>
+              <option value="linear">Linear</option>
+              <option value="reinhard">Reinhard</option>
+              <option value="cineon">Cineon</option>
+              <option value="aces">ACES Filmic</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Exposure</label>
+              <span class="help" data-tip="Helderheid-multiplier van de tone mapping. Hoger = lichter, lager = donkerder beeld."></span>
+            </span>
+            <input type="range" min="0.2" max="3" step="0.1" data-setting="toneMappingExposure"><span class="val"></span>
+          </div>
           <button class="panel-btn" id="btn-perf-preset">Max performance preset</button>
           <button class="panel-btn" id="btn-visual-preset" style="background: transparent; border: 1px solid var(--accent-dim); color: var(--accent);">Default visuals preset</button>
         </div>
@@ -280,6 +298,14 @@
               <span class="help" data-tip="Camera blijft nog even doordraaien na loslaten muis. Aan = glad/cinematic. Uit = snappy/direct."></span>
             </span>
             <input type="checkbox" data-setting="enableDamping">
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px;">
+            <button class="panel-btn view-btn" data-view="front" style="margin: 0; font-size: 11px; padding: 6px;">Front</button>
+            <button class="panel-btn view-btn" data-view="back"  style="margin: 0; font-size: 11px; padding: 6px;">Back</button>
+            <button class="panel-btn view-btn" data-view="top"   style="margin: 0; font-size: 11px; padding: 6px;">Top</button>
+            <button class="panel-btn view-btn" data-view="left"  style="margin: 0; font-size: 11px; padding: 6px;">Left</button>
+            <button class="panel-btn view-btn" data-view="right" style="margin: 0; font-size: 11px; padding: 6px;">Right</button>
+            <button class="panel-btn view-btn" data-view="iso"   style="margin: 0; font-size: 11px; padding: 6px;">Iso</button>
           </div>
           <button class="panel-btn" id="btn-reframe">Reframe op bestand</button>
         </div>
@@ -409,6 +435,63 @@
       </details>
 
       <details>
+        <summary>Shadows</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Enable shadows</label>
+              <span class="help" data-tip="Real-time schaduwen van directional light. Vereist Shaded High mode om effect te hebben op je print (MeshBasic/lines werpen geen schaduwen). Fors zwaarder, vooral bij veel segments."></span>
+            </span>
+            <input type="checkbox" data-setting="enableShadows">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Map size</label>
+              <span class="help" data-tip="Resolutie van de shadow-map. Hoger = scherpere schaduwranden maar exponentieel duurder. 1024 = default, 2048 = scherp, 4096 = duur."></span>
+            </span>
+            <select data-setting="shadowMapSize">
+              <option value="512">512</option>
+              <option value="1024">1024</option>
+              <option value="2048">2048</option>
+              <option value="4096">4096</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Softness</label>
+              <span class="help" data-tip="Basic = harde randen (goedkoop). PCF = lichte smoothing. PCFSoft = zachtste, duurst."></span>
+            </span>
+            <select data-setting="shadowSoftness">
+              <option value="basic">Basic</option>
+              <option value="pcf">PCF</option>
+              <option value="pcfsoft">PCF Soft</option>
+            </select>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Bias</label>
+              <span class="help" data-tip="Anti-acne offset. Te hoog = zwevende schaduwen, te laag = gestreepte artefacten. Default -0.0005 werkt meestal."></span>
+            </span>
+            <input type="range" min="-0.01" max="0.01" step="0.0001" data-setting="shadowBias"><span class="val"></span>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Layer slicing</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Min layer %</label>
+              <span class="help" data-tip="Onderste afkap: toon alleen lagen boven deze hoogte (percentage van totale Z-range). 0 = alles."></span>
+            </span>
+            <input type="range" min="0" max="100" step="1" data-setting="layerMin"><span class="val"></span>
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Max layer %</label>
+              <span class="help" data-tip="Bovenste afkap: toon alleen lagen onder deze hoogte. 100 = alles. Combineer met Min voor een laag-by-laag view. Is ook een grote perf-win: minder segments = sneller."></span>
+            </span>
+            <input type="range" min="0" max="100" step="1" data-setting="layerMax"><span class="val"></span>
+          </div>
+        </div>
+      </details>
+
+      <details>
         <summary>Colors</summary>
         <div class="section-body">
           <div class="row">
@@ -512,6 +595,17 @@
       // Colors
       colorScheme: 'layer',
       solidColor: '#4a9eff',
+      // Shadows
+      enableShadows: false,
+      shadowMapSize: 1024,
+      shadowSoftness: 'pcf',
+      shadowBias: -0.0005,
+      // Tone mapping
+      toneMapping: 'aces',
+      toneMappingExposure: 1.0,
+      // Layer slicing (percentage 0-100 van Z-bereik)
+      layerMin: 0,
+      layerMax: 100,
     };
 
     // Preset dat alles op FPS-gunstigste zet (één klik).
@@ -579,14 +673,28 @@
     let needsRender = true;
     const requestRender = () => { needsRender = true; };
 
+    const TONE_MAPS = {
+      none: THREE.NoToneMapping,
+      linear: THREE.LinearToneMapping,
+      reinhard: THREE.ReinhardToneMapping,
+      cineon: THREE.CineonToneMapping,
+      aces: THREE.ACESFilmicToneMapping,
+    };
+    const SHADOW_TYPES = {
+      basic: THREE.BasicShadowMap,
+      pcf: THREE.PCFShadowMap,
+      pcfsoft: THREE.PCFSoftShadowMap,
+    };
+
     function createRenderer() {
       const old = renderer;
       renderer = new THREE.WebGLRenderer({ antialias: settings.antialias, powerPreference: 'high-performance' });
       renderer.setPixelRatio(settings.pixelRatio);
       renderer.setSize(wrap.clientWidth, wrap.clientHeight);
-      // Tone-mapping zorgt dat overhelderd licht geen kleuren naar wit gooit.
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.0;
+      renderer.toneMapping = TONE_MAPS[settings.toneMapping] || THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = settings.toneMappingExposure;
+      renderer.shadowMap.enabled = settings.enableShadows;
+      renderer.shadowMap.type = SHADOW_TYPES[settings.shadowSoftness] || THREE.PCFShadowMap;
       if (old) {
         wrap.removeChild(old.domElement);
         old.dispose();
@@ -636,9 +744,13 @@
       if (!settings.showBuildPlate) { requestRender(); return; }
       const sx = settings.bedSizeX, sy = settings.bedSizeY;
       const geo = new THREE.PlaneGeometry(sx, sy);
-      const mat = new THREE.MeshBasicMaterial({ color: 0x1a1a24, transparent: true, opacity: 0.6 });
+      // Shadow-receivers moeten lit materials zijn (MeshBasic doet niks met shadows).
+      const mat = settings.enableShadows
+        ? new THREE.MeshStandardMaterial({ color: 0x1a1a24, roughness: 0.9, metalness: 0 })
+        : new THREE.MeshBasicMaterial({ color: 0x1a1a24, transparent: true, opacity: 0.6 });
       buildPlate = new THREE.Mesh(geo, mat);
       buildPlate.position.set(sx / 2, sy / 2, -0.01);
+      buildPlate.receiveShadow = settings.enableShadows;
       scene.add(buildPlate);
       requestRender();
     }
@@ -693,6 +805,33 @@
 
     function reframe() {
       if (viewer.lastBounds) frameBounds(viewer.lastBounds.min, viewer.lastBounds.max);
+    }
+
+    function setView(view) {
+      const b = viewer.lastBounds;
+      if (!b) return;
+      const cx = (b.min[0] + b.max[0]) / 2;
+      const cy = (b.min[1] + b.max[1]) / 2;
+      const cz = (b.min[2] + b.max[2]) / 2;
+      const sx = Math.max(b.max[0] - b.min[0], 1);
+      const sy = Math.max(b.max[1] - b.min[1], 1);
+      const sz = Math.max(b.max[2] - b.min[2], 1);
+      const fov = camera.fov * Math.PI / 180;
+      const fitSize = Math.max(sx, sy, sz);
+      const dist = (fitSize / 2) / Math.tan(fov / 2) * 1.4;
+      const positions = {
+        front: [cx, cy - dist, cz],
+        back:  [cx, cy + dist, cz],
+        left:  [cx - dist, cy, cz],
+        right: [cx + dist, cy, cz],
+        top:   [cx, cy, cz + dist],
+        iso:   [cx + dist * 0.7, cy - dist * 0.7, cz + dist * 0.7],
+      };
+      const p = positions[view] || positions.front;
+      controls.target.set(cx, cy, cz);
+      camera.position.set(p[0], p[1], p[2]);
+      camera.lookAt(cx, cy, cz);
+      requestRender();
     }
 
     function parseGcodeText(text) {
@@ -925,8 +1064,20 @@
       return out;
     }
 
+    function applyLayerSlice(segments, bounds) {
+      const lo = Math.max(0, Math.min(100, +settings.layerMin || 0));
+      const hi = Math.max(0, Math.min(100, +settings.layerMax || 100));
+      if (lo <= 0 && hi >= 100) return segments;
+      const zMin = bounds.min[2];
+      const zRange = Math.max(bounds.max[2] - zMin, 1e-6);
+      const zLo = zMin + (lo / 100) * zRange;
+      const zHi = zMin + (hi / 100) * zRange;
+      return segments.filter(s => s[2] >= zLo && s[5] <= zHi);
+    }
+
     function buildGcodeForQuality(segments, bounds) {
-      const strided = applyStride(segments);
+      const sliced = applyLayerSlice(segments, bounds);
+      const strided = applyStride(sliced);
       switch (settings.quality) {
         case 'low':  return { obj: buildGcodeLow(strided, bounds), rendered: strided.length };
         case 'high': return { obj: buildGcodeHigh(strided, bounds), rendered: strided.length };
@@ -981,6 +1132,7 @@
         $('info').textContent = 'geen bestand geladen';
       }
       updateLighting();
+      configureShadows();
       requestRender();
     }
 
@@ -1008,6 +1160,36 @@
     dirLight.position.set(200, 200, 400);
     const fillLight = new THREE.DirectionalLight(0x88aaff, settings.fillIntensity);
     fillLight.position.set(-200, -100, 200);
+
+    function configureShadows() {
+      dirLight.castShadow = settings.enableShadows;
+      if (settings.enableShadows) {
+        const s = Math.max(settings.bedSizeX, settings.bedSizeY) * 0.8;
+        dirLight.shadow.mapSize.width = settings.shadowMapSize;
+        dirLight.shadow.mapSize.height = settings.shadowMapSize;
+        dirLight.shadow.camera.left = -s;
+        dirLight.shadow.camera.right = s;
+        dirLight.shadow.camera.top = s;
+        dirLight.shadow.camera.bottom = -s;
+        dirLight.shadow.camera.near = 0.1;
+        dirLight.shadow.camera.far = 2000;
+        dirLight.shadow.bias = settings.shadowBias;
+        dirLight.shadow.camera.updateProjectionMatrix();
+        if (dirLight.shadow.map) {
+          dirLight.shadow.map.dispose();
+          dirLight.shadow.map = null;
+        }
+      }
+      if (buildPlate) {
+        buildPlate.receiveShadow = settings.enableShadows;
+        buildPlate.material.needsUpdate = true;
+      }
+      if (viewer.previewObject) {
+        viewer.previewObject.castShadow = settings.enableShadows;
+        viewer.previewObject.receiveShadow = settings.enableShadows;
+      }
+      requestRender();
+    }
 
     // Lighting is alleen zinvol voor shaded materials (high+shaded of STL).
     // Voor LineBasic / LineMaterial / MeshBasicMaterial kost het alleen maar
@@ -1237,9 +1419,11 @@
       'quality', 'mediumLinewidth', 'mediumWorldUnits',
       'extrusionWidth', 'layerHeight', 'colorScheme', 'solidColor',
       'segmentStride', 'shaded', 'volumeShape',
+      'layerMin', 'layerMax',
     ]);
     const RECREATE_RENDERER = new Set(['antialias']);
     const REFRAME = new Set(['panX', 'panZ']);
+    const SHADOW_KEYS = new Set(['enableShadows', 'shadowMapSize', 'shadowSoftness', 'shadowBias']);
 
     function applySetting(key) {
       switch (key) {
@@ -1275,6 +1459,24 @@
         case 'ambientIntensity': hemi.intensity = settings.ambientIntensity; requestRender(); break;
         case 'dirIntensity': dirLight.intensity = settings.dirIntensity; requestRender(); break;
         case 'fillIntensity': fillLight.intensity = settings.fillIntensity; requestRender(); break;
+        case 'toneMapping':
+          renderer.toneMapping = TONE_MAPS[settings.toneMapping] || THREE.ACESFilmicToneMapping;
+          renderCurrent();
+          break;
+        case 'toneMappingExposure':
+          renderer.toneMappingExposure = settings.toneMappingExposure;
+          requestRender();
+          break;
+      }
+      if (SHADOW_KEYS.has(key)) {
+        if (key === 'enableShadows' || key === 'shadowSoftness') {
+          renderer.shadowMap.enabled = settings.enableShadows;
+          renderer.shadowMap.type = SHADOW_TYPES[settings.shadowSoftness] || THREE.PCFShadowMap;
+          // shaded + enableShadows bepaalt ook of lights überhaupt in scene staan
+          renderCurrent();
+        } else {
+          configureShadows();
+        }
       }
       if (RECREATE_RENDERER.has(key)) {
         createRenderer();
@@ -1344,6 +1546,11 @@
 
     $('btn-perf-preset').addEventListener('click', () => applyPreset(PERFORMANCE_PRESET));
     $('btn-visual-preset').addEventListener('click', () => applyPreset(VISUAL_PRESET));
+
+    // Camera view preset buttons
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', () => setView(btn.dataset.view));
+    });
     $('btn-reset-settings').addEventListener('click', () => {
       if (!confirm('Alle settings resetten naar defaults?')) return;
       Object.assign(settings, DEFAULT_SETTINGS);
