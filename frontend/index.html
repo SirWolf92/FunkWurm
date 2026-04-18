@@ -267,6 +267,18 @@
             </span>
             <input type="range" min="0.2" max="3" step="0.1" data-setting="toneMappingExposure"><span class="val"></span>
           </div>
+          <div class="row">
+            <span class="label-group"><label>Adaptive resolution</label>
+              <span class="help" data-tip="Tijdens dragging wordt pixelRatio verlaagd voor smoothe interactie. Zodra je loslaat springt hij terug naar volle kwaliteit. Groot winst voor draggevoel zonder visuele concessie in rust."></span>
+            </span>
+            <input type="checkbox" data-setting="adaptivePixelRatio">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Drag res scale</label>
+              <span class="help" data-tip="Hoe ver de pixelRatio tijdens drag zakt. 0.5 = halve res, 0.25 = kwart res (vlotter maar waziger tijdens beweging)."></span>
+            </span>
+            <input type="range" min="0.25" max="1" step="0.05" data-setting="dragResolutionScale"><span class="val"></span>
+          </div>
           <button class="panel-btn" id="btn-perf-preset">Max performance preset</button>
           <button class="panel-btn" id="btn-visual-preset" style="background: transparent; border: 1px solid var(--accent-dim); color: var(--accent);">Default visuals preset</button>
         </div>
@@ -606,6 +618,9 @@
       // Layer slicing (percentage 0-100 van Z-bereik)
       layerMin: 0,
       layerMax: 100,
+      // Adaptive rendering
+      adaptivePixelRatio: true,
+      dragResolutionScale: 0.5,
     };
 
     // Preset dat alles op FPS-gunstigste zet (één klik).
@@ -688,7 +703,13 @@
 
     function createRenderer() {
       const old = renderer;
-      renderer = new THREE.WebGLRenderer({ antialias: settings.antialias, powerPreference: 'high-performance' });
+      renderer = new THREE.WebGLRenderer({
+        antialias: settings.antialias,
+        powerPreference: 'high-performance',
+        alpha: false,
+        stencil: false,
+        depth: true,
+      });
       renderer.setPixelRatio(settings.pixelRatio);
       renderer.setSize(wrap.clientWidth, wrap.clientHeight);
       renderer.toneMapping = TONE_MAPS[settings.toneMapping] || THREE.ACESFilmicToneMapping;
@@ -706,6 +727,19 @@
       controls.enableDamping = settings.enableDamping;
       controls.dampingFactor = 0.1;
       controls.addEventListener('change', requestRender);
+      // Adaptive pixel ratio: zak naar lagere res tijdens dragging voor
+      // smoothe interactie. Gaat terug naar volle res zodra user loslaat.
+      controls.addEventListener('start', () => {
+        if (!settings.adaptivePixelRatio) return;
+        const pr = Math.max(0.2, settings.pixelRatio * settings.dragResolutionScale);
+        renderer.setPixelRatio(pr);
+        handleResize();
+      });
+      controls.addEventListener('end', () => {
+        if (!settings.adaptivePixelRatio) return;
+        renderer.setPixelRatio(settings.pixelRatio);
+        handleResize();
+      });
       requestRender();
     }
     createRenderer();
@@ -1222,6 +1256,12 @@
       }
     } catch {}
 
+    function fmtK(n) {
+      if (n < 1000) return String(n);
+      if (n < 1_000_000) return (n / 1000).toFixed(1) + 'k';
+      return (n / 1_000_000).toFixed(2) + 'M';
+    }
+
     function animate() {
       requestAnimationFrame(animate);
       if (controls.update()) needsRender = true;
@@ -1232,7 +1272,9 @@
         const now = performance.now();
         const dt = now - fpsLast;
         if (dt >= 500) {
-          fpsEl.textContent = `${Math.round((fpsFrames * 1000) / dt)} fps`;
+          const fps = Math.round((fpsFrames * 1000) / dt);
+          const info = renderer.info.render;
+          fpsEl.textContent = `${fps} fps · ${fmtK(info.triangles)} tri · ${info.calls} calls`;
           fpsFrames = 0;
           fpsLast = now;
         }
