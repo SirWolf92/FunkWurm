@@ -627,25 +627,25 @@
     const DEFAULT_SETTINGS = {
       // Rendering
       quality: 'high',
-      antialias: false,
-      pixelRatio: 0.5,
+      antialias: true,
+      pixelRatio: 2,
       frustumCulling: true,
       segmentStride: 1,
       // Camera
-      fov: 69,
+      fov: 50,
       enableDamping: false,
       panX: 0.3,
       panZ: 0.05,
       // Lines (medium)
       mediumLinewidth: 1,
-      mediumWorldUnits: false,
+      mediumWorldUnits: true,
       // Volumes (high)
       extrusionWidth: 0.1,
       layerHeight: 0.18,
       shaded: true,
       volumeShape: 'box',
       // Scene
-      showGrid: true,
+      showGrid: false,
       showAxes: true,
       showBuildPlate: false,
       gridDivisions: 10,
@@ -666,13 +666,13 @@
       shadowBias: -0.0005,
       // Tone mapping
       toneMapping: 'aces',
-      toneMappingExposure: 1.0,
+      toneMappingExposure: 3,
       // Layer slicing (percentage 0-100 van Z-bereik)
       layerMin: 0,
       layerMax: 100,
       // Adaptive rendering
       adaptivePixelRatio: true,
-      dragResolutionScale: 0.5,
+      dragResolutionScale: 0.25,
       // Gcode section filters (gedetecteerd via ;TYPE: slicer comments).
       // Infill default uit voor grote performance-winst + cleaner shell-view.
       sectionOuter: true,
@@ -860,6 +860,7 @@
       gcode: null,   // { segments, bounds, label, rawCount }
       stl: null,     // { geometry, label }
       lastBounds: null,
+      framed: false, // true zodra camera is gepositioneerd op het huidige bestand
     };
 
     function disposeObject(obj) {
@@ -1234,7 +1235,13 @@
         viewer.previewObject = obj;
         applyFrustum(viewer.previewObject);
         scene.add(viewer.previewObject);
-        frameBounds(bounds.min, bounds.max);
+        if (viewer.framed) {
+          // Behoud huidige camera-positie; update alleen lastBounds voor reframe-knop.
+          viewer.lastBounds = { min: [...bounds.min], max: [...bounds.max] };
+        } else {
+          frameBounds(bounds.min, bounds.max);
+          viewer.framed = true;
+        }
         const mergedInfo = rawCount && rawCount !== segments.length
           ? ` (${rawCount} raw → ${segments.length} merged)`
           : '';
@@ -1257,7 +1264,14 @@
         viewer.previewObject = new THREE.Mesh(geometry, mat);
         applyFrustum(viewer.previewObject);
         scene.add(viewer.previewObject);
-        frameBounds([bb.min.x, bb.min.y, bb.min.z], [bb.max.x, bb.max.y, bb.max.z]);
+        const mn = [bb.min.x, bb.min.y, bb.min.z];
+        const mx = [bb.max.x, bb.max.y, bb.max.z];
+        if (viewer.framed) {
+          viewer.lastBounds = { min: mn, max: mx };
+        } else {
+          frameBounds(mn, mx);
+          viewer.framed = true;
+        }
         const tri = geometry.attributes.position.count / 3;
         $('info').textContent = `${label} — STL, ${tri | 0} triangles · ${settings.quality}`;
       } else {
@@ -1278,12 +1292,14 @@
         rawCount,
       };
       viewer.stl = null;
+      viewer.framed = false;  // nieuw bestand → camera opnieuw positioneren
       renderCurrent();
     }
 
     function showStlGeometry(geometry, label) {
       viewer.stl = { geometry, label };
       viewer.gcode = null;
+      viewer.framed = false;
       renderCurrent();
     }
 
