@@ -250,6 +250,7 @@
             <input type="range" min="1" max="10" step="1" data-setting="segmentStride"><span class="val"></span>
           </div>
           <button class="panel-btn" id="btn-perf-preset">Max performance preset</button>
+          <button class="panel-btn" id="btn-visual-preset" style="background: transparent; border: 1px solid var(--accent-dim); color: var(--accent);">Default visuals preset</button>
         </div>
       </details>
 
@@ -505,9 +506,9 @@
       bedSizeY: 220,
       bgColor: '#0a0a0f',
       // Lighting
-      ambientIntensity: 1.1,
-      dirIntensity: 1.2,
-      fillIntensity: 0.6,
+      ambientIntensity: 0.5,
+      dirIntensity: 0.6,
+      fillIntensity: 0.2,
       // Colors
       colorScheme: 'layer',
       solidColor: '#4a9eff',
@@ -525,6 +526,28 @@
       showGrid: false,
       showAxes: false,
       showBuildPlate: false,
+    };
+
+    // Preset voor mooie weergave (herstel na perf-preset als visuals verstoord zijn).
+    const VISUAL_PRESET = {
+      quality: 'high',
+      antialias: true,
+      pixelRatio: 1,
+      frustumCulling: true,
+      segmentStride: 1,
+      fov: 50,
+      enableDamping: false,
+      shaded: true,
+      volumeShape: 'box',
+      extrusionWidth: 0.4,
+      layerHeight: 0.2,
+      showGrid: true,
+      showAxes: true,
+      showBuildPlate: false,
+      colorScheme: 'layer',
+      ambientIntensity: 0.5,
+      dirIntensity: 0.6,
+      fillIntensity: 0.2,
     };
 
     function loadSettings() {
@@ -561,6 +584,9 @@
       renderer = new THREE.WebGLRenderer({ antialias: settings.antialias, powerPreference: 'high-performance' });
       renderer.setPixelRatio(settings.pixelRatio);
       renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+      // Tone-mapping zorgt dat overhelderd licht geen kleuren naar wit gooit.
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
       if (old) {
         wrap.removeChild(old.domElement);
         old.dispose();
@@ -1302,16 +1328,22 @@
       });
     }
 
-    $('btn-perf-preset').addEventListener('click', () => {
-      Object.assign(settings, PERFORMANCE_PRESET);
+    function applyPreset(preset) {
+      Object.assign(settings, preset);
       saveSettings();
       syncPanelInputs();
-      // Apply all changed settings: recreate renderer for AA, rebuild scene objects,
-      // and rebuild the preview mesh.
       createRenderer();
       rebuildGrid(); rebuildAxes(); rebuildBuildPlate();
+      scene.background = new THREE.Color(settings.bgColor);
+      camera.fov = settings.fov; camera.updateProjectionMatrix();
+      hemi.intensity = settings.ambientIntensity;
+      dirLight.intensity = settings.dirIntensity;
+      fillLight.intensity = settings.fillIntensity;
       renderCurrent();
-    });
+    }
+
+    $('btn-perf-preset').addEventListener('click', () => applyPreset(PERFORMANCE_PRESET));
+    $('btn-visual-preset').addEventListener('click', () => applyPreset(VISUAL_PRESET));
     $('btn-reset-settings').addEventListener('click', () => {
       if (!confirm('Alle settings resetten naar defaults?')) return;
       Object.assign(settings, DEFAULT_SETTINGS);
