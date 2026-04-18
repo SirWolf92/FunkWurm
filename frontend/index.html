@@ -243,6 +243,13 @@
             </span>
             <input type="checkbox" data-setting="frustumCulling">
           </div>
+          <div class="row">
+            <span class="label-group"><label>Segment stride</label>
+              <span class="help" data-tip="Render elke Nde gcode-segment. 1 = alles. 2 = halveer. 5 = 80% minder geometry. Grootste winst bij grote files, prijs is dat detail verdwijnt."></span>
+            </span>
+            <input type="range" min="1" max="10" step="1" data-setting="segmentStride"><span class="val"></span>
+          </div>
+          <button class="panel-btn" id="btn-perf-preset">Max performance preset</button>
         </div>
       </details>
 
@@ -310,6 +317,12 @@
             </span>
             <input type="range" min="0.05" max="1" step="0.01" data-setting="layerHeight"><span class="val"></span>
           </div>
+          <div class="row">
+            <span class="label-group"><label>Shaded</label>
+              <span class="help" data-tip="Aan = per-fragment lighting (mooier, 3D shading op zijkanten). Uit = platte kleur zonder lighting, fors sneller op integrated GPUs. Uitzetten als je FPS-drops hebt in High mode."></span>
+            </span>
+            <input type="checkbox" data-setting="shaded">
+          </div>
         </div>
       </details>
 
@@ -333,6 +346,12 @@
               <span class="help" data-tip="Semi-transparant vlak als printerbed onder het object."></span>
             </span>
             <input type="checkbox" data-setting="showBuildPlate">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Grid divisions</label>
+              <span class="help" data-tip="Aantal rasterlijnen in het grid. Lager = minder lijnen om te renderen. Kan helpen op trage GPUs."></span>
+            </span>
+            <input type="range" min="2" max="40" step="1" data-setting="gridDivisions"><span class="val"></span>
           </div>
           <div class="row">
             <span class="label-group"><label>Bed X (mm)</label>
@@ -454,6 +473,7 @@
       antialias: false,
       pixelRatio: 0.5,
       frustumCulling: true,
+      segmentStride: 1,
       // Camera
       fov: 69,
       enableDamping: false,
@@ -465,10 +485,12 @@
       // Volumes (high)
       extrusionWidth: 0.1,
       layerHeight: 0.18,
+      shaded: true,
       // Scene
       showGrid: true,
       showAxes: true,
       showBuildPlate: false,
+      gridDivisions: 10,
       bedSizeX: 220,
       bedSizeY: 220,
       bgColor: '#0a0a0f',
@@ -479,6 +501,19 @@
       // Colors
       colorScheme: 'layer',
       solidColor: '#4a9eff',
+    };
+
+    // Preset dat alles op FPS-gunstigste zet (één klik).
+    const PERFORMANCE_PRESET = {
+      antialias: false,
+      pixelRatio: 0.5,
+      frustumCulling: true,
+      segmentStride: 3,
+      enableDamping: false,
+      shaded: false,
+      showGrid: false,
+      showAxes: false,
+      showBuildPlate: false,
     };
 
     function loadSettings() {
@@ -540,7 +575,7 @@
       if (!settings.showGrid) { requestRender(); return; }
       const sx = settings.bedSizeX, sy = settings.bedSizeY;
       const size = Math.max(sx, sy);
-      const divisions = Math.round(size / 10);
+      const divisions = Math.max(2, Math.min(40, settings.gridDivisions | 0));
       grid = new THREE.GridHelper(size, divisions, 0x444444, 0x222222);
       grid.rotation.x = Math.PI / 2;
       grid.position.set(sx / 2, sy / 2, 0);
@@ -795,7 +830,11 @@
     function buildGcodeHigh(segments, bounds) {
       const n = segments.length;
       const box = new THREE.BoxGeometry(1, settings.extrusionWidth, settings.layerHeight);
-      const mat = new THREE.MeshLambertMaterial();
+      // Shaded = lighting per fragment (duurder, mooier). Onshaded = MeshBasic
+      // (geen fragment-lighting, pure vertex-color; veel sneller op integrated GPU).
+      const mat = settings.shaded
+        ? new THREE.MeshLambertMaterial()
+        : new THREE.MeshBasicMaterial();
       const mesh = new THREE.InstancedMesh(box, mat, n);
       mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
 
@@ -834,11 +873,22 @@
       return mesh;
     }
 
+    function applyStride(segments) {
+      const stride = Math.max(1, settings.segmentStride | 0);
+      if (stride <= 1) return segments;
+      const out = new Array(Math.ceil(segments.length / stride));
+      let j = 0;
+      for (let i = 0; i < segments.length; i += stride) out[j++] = segments[i];
+      out.length = j;
+      return out;
+    }
+
     function buildGcodeForQuality(segments, bounds) {
+      const strided = applyStride(segments);
       switch (settings.quality) {
-        case 'low':  return buildGcodeLow(segments, bounds);
-        case 'high': return buildGcodeHigh(segments, bounds);
-        default:     return buildGcodeMedium(segments, bounds);
+        case 'low':  return { obj: buildGcodeLow(strided, bounds), rendered: strided.length };
+        case 'high': return { obj: buildGcodeHigh(strided, bounds), rendered: strided.length };
+        default:     return { obj: buildGcodeMedium(strided, bounds), rendered: strided.length };
       }
     }
 
@@ -855,14 +905,18 @@
           requestRender();
           return;
         }
-        viewer.previewObject = buildGcodeForQuality(segments, bounds);
+        const { obj, rendered } = buildGcodeForQuality(segments, bounds);
+        viewer.previewObject = obj;
         applyFrustum(viewer.previewObject);
         scene.add(viewer.previewObject);
         frameBounds(bounds.min, bounds.max);
         const mergedInfo = rawCount && rawCount !== segments.length
-          ? ` (${rawCount} raw → ${segments.length} na merge)`
+          ? ` (${rawCount} raw → ${segments.length} merged)`
           : '';
-        $('info').textContent = `${label} — ${segments.length} segments${mergedInfo} · ${settings.quality}`;
+        const strideInfo = rendered !== segments.length
+          ? ` → ${rendered} gerenderd (stride ${settings.segmentStride})`
+          : '';
+        $('info').textContent = `${label} — ${segments.length} segments${mergedInfo}${strideInfo} · ${settings.quality}`;
       } else if (viewer.stl) {
         const { geometry, label } = viewer.stl;
         geometry.computeVertexNormals();
@@ -884,6 +938,7 @@
       } else {
         $('info').textContent = 'geen bestand geladen';
       }
+      updateLighting();
       requestRender();
     }
 
@@ -907,13 +962,26 @@
     }
 
     const hemi = new THREE.HemisphereLight(0xddeeff, 0x202030, settings.ambientIntensity);
-    scene.add(hemi);
     const dirLight = new THREE.DirectionalLight(0xffffff, settings.dirIntensity);
     dirLight.position.set(200, 200, 400);
-    scene.add(dirLight);
     const fillLight = new THREE.DirectionalLight(0x88aaff, settings.fillIntensity);
     fillLight.position.set(-200, -100, 200);
-    scene.add(fillLight);
+
+    // Lighting is alleen zinvol voor shaded materials (high+shaded of STL).
+    // Voor LineBasic / LineMaterial / MeshBasicMaterial kost het alleen maar
+    // uniform-updates en shader-varianten zonder visueel verschil.
+    function updateLighting() {
+      const useLights = viewer.stl
+        ? true
+        : (settings.quality === 'high' && settings.shaded);
+      if (useLights) {
+        if (!hemi.parent) { scene.add(hemi); scene.add(dirLight); scene.add(fillLight); }
+      } else {
+        if (hemi.parent) { scene.remove(hemi); scene.remove(dirLight); scene.remove(fillLight); }
+      }
+      requestRender();
+    }
+    updateLighting();
 
     // FPS monitor: toont alleen real render-fps, niet idle frames.
     const fpsEl = $('fps');
@@ -1116,6 +1184,7 @@
     const REBUILD = new Set([
       'quality', 'mediumLinewidth', 'mediumWorldUnits',
       'extrusionWidth', 'layerHeight', 'colorScheme', 'solidColor',
+      'segmentStride', 'shaded',
     ]);
     const RECREATE_RENDERER = new Set(['antialias']);
     const REFRAME = new Set(['panX', 'panZ']);
@@ -1141,6 +1210,7 @@
         case 'showGrid':      rebuildGrid(); break;
         case 'showAxes':      rebuildAxes(); break;
         case 'showBuildPlate': rebuildBuildPlate(); break;
+        case 'gridDivisions': rebuildGrid(); break;
         case 'bedSizeX':
         case 'bedSizeY':
           rebuildGrid();
@@ -1194,18 +1264,33 @@
     document.querySelectorAll('#settings-panel [data-setting]').forEach(bindControl);
 
     $('btn-reframe').addEventListener('click', reframe);
-    $('btn-reset-settings').addEventListener('click', () => {
-      if (!confirm('Alle settings resetten naar defaults?')) return;
-      Object.assign(settings, DEFAULT_SETTINGS);
-      saveSettings();
+
+    function syncPanelInputs() {
       document.querySelectorAll('#settings-panel [data-setting]').forEach(el => {
         const key = el.dataset.setting;
         const v = settings[key];
         const valEl = el.parentElement.querySelector('.val');
         if (el.type === 'checkbox') el.checked = !!v;
         else el.value = v;
-        if (valEl) valEl.textContent = v;
+        if (valEl) valEl.textContent = (typeof v === 'number') ? (Number.isInteger(v) ? v : v.toFixed(2)) : v;
       });
+    }
+
+    $('btn-perf-preset').addEventListener('click', () => {
+      Object.assign(settings, PERFORMANCE_PRESET);
+      saveSettings();
+      syncPanelInputs();
+      // Apply all changed settings: recreate renderer for AA, rebuild scene objects,
+      // and rebuild the preview mesh.
+      createRenderer();
+      rebuildGrid(); rebuildAxes(); rebuildBuildPlate();
+      renderCurrent();
+    });
+    $('btn-reset-settings').addEventListener('click', () => {
+      if (!confirm('Alle settings resetten naar defaults?')) return;
+      Object.assign(settings, DEFAULT_SETTINGS);
+      saveSettings();
+      syncPanelInputs();
       createRenderer();
       rebuildGrid(); rebuildAxes(); rebuildBuildPlate();
       scene.background = new THREE.Color(settings.bgColor);
