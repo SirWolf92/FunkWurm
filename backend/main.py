@@ -28,6 +28,23 @@ def auth_headers() -> dict:
 _gcode_cache: dict = {}
 
 
+# Section type IDs used in parsed segments (7th element).
+# Normalized across slicer dialects (Cura, PrusaSlicer, Creality).
+_SECTION_MAP = {
+    "WALL-OUTER": 1, "EXTERNAL PERIMETER": 1,
+    "WALL-INNER": 2, "PERIMETER": 2, "INNER WALL": 2, "OUTER WALL": 1,
+    "SKIN": 3, "TOP SOLID INFILL": 3, "SOLID INFILL": 3, "BOTTOM SOLID INFILL": 3,
+    "FILL": 4, "INTERNAL INFILL": 4, "INFILL": 4, "SPARSE INFILL": 4,
+    "SKIRT": 5, "BRIM": 5,
+    "SUPPORT": 6, "SUPPORT MATERIAL": 6, "SUPPORT MATERIAL INTERFACE": 6,
+    "SUPPORT INTERFACE": 6,
+}
+
+
+def _map_section_type(name: str) -> int:
+    return _SECTION_MAP.get(name.upper().strip(), 0)
+
+
 def _parse_gcode(text: str) -> dict:
     segments = []
     x = y = z = 0.0
@@ -35,8 +52,14 @@ def _parse_gcode(text: str) -> dict:
     abs_mode = True
     min_xyz = [float("inf")] * 3
     max_xyz = [float("-inf")] * 3
+    current_type = 0
 
     for raw in text.splitlines():
+        stripped = raw.strip()
+        # Detect section type markers before stripping comments.
+        if stripped.startswith(";TYPE:"):
+            current_type = _map_section_type(stripped[6:])
+
         line = raw.split(";", 1)[0].strip()
         if not line:
             continue
@@ -79,7 +102,7 @@ def _parse_gcode(text: str) -> dict:
 
         extruding = ne > e_prev + 1e-6
         if extruding and (nx != x or ny != y or nz != z):
-            segments.append([x, y, z, nx, ny, nz])
+            segments.append([x, y, z, nx, ny, nz, current_type])
             for i, v in enumerate((nx, ny, nz)):
                 if v < min_xyz[i]:
                     min_xyz[i] = v

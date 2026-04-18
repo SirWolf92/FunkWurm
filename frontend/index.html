@@ -485,6 +485,58 @@
         </div>
       </details>
 
+      <details open>
+        <summary>Gcode filters</summary>
+        <div class="section-body">
+          <div class="row">
+            <span class="label-group"><label>Outer walls</label>
+              <span class="help" data-tip="Buitenste wanden van elk perimeter. Dit is de shell die je op je eindproduct ziet."></span>
+            </span>
+            <input type="checkbox" data-setting="sectionOuter">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Inner walls</label>
+              <span class="help" data-tip="Extra wand-loops binnen de outer wall. Geven sterkte maar zitten binnenin."></span>
+            </span>
+            <input type="checkbox" data-setting="sectionInner">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Skin (top/bottom)</label>
+              <span class="help" data-tip="Dichte toplaag en bodemlagen. Zichtbaar aan buitenkant."></span>
+            </span>
+            <input type="checkbox" data-setting="sectionSkin">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Infill</label>
+              <span class="help" data-tip="Interne vulling (raster/gyroid/etc). Onzichtbaar in eindproduct maar vaak 50-80% van alle segments. Uitzetten = grote performance-winst én cleaner shell-preview. Default UIT."></span>
+            </span>
+            <input type="checkbox" data-setting="sectionInfill">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Skirt / Brim</label>
+              <span class="help" data-tip="Aanhechting-lijnen naast het object (skirt) of eromheen (brim)."></span>
+            </span>
+            <input type="checkbox" data-setting="sectionSkirt">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Support</label>
+              <span class="help" data-tip="Tijdelijk support materiaal voor overhangs."></span>
+            </span>
+            <input type="checkbox" data-setting="sectionSupport">
+          </div>
+          <div class="row">
+            <span class="label-group"><label>Unannotated</label>
+              <span class="help" data-tip="Segments zonder ;TYPE: marker (oude gcodes of niet-slicer output). Beter laten staan — anders lege preview bij sommige files."></span>
+            </span>
+            <input type="checkbox" data-setting="sectionOther">
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px;">
+            <button class="panel-btn" id="btn-shell-only" style="margin: 0; font-size: 11px; padding: 6px;">Shell only</button>
+            <button class="panel-btn" id="btn-show-all" style="margin: 0; font-size: 11px; padding: 6px; background: transparent; border: 1px solid var(--accent-dim); color: var(--accent);">Show all</button>
+          </div>
+        </div>
+      </details>
+
       <details>
         <summary>Layer slicing</summary>
         <div class="section-body">
@@ -621,6 +673,15 @@
       // Adaptive rendering
       adaptivePixelRatio: true,
       dragResolutionScale: 0.5,
+      // Gcode section filters (gedetecteerd via ;TYPE: slicer comments).
+      // Infill default uit voor grote performance-winst + cleaner shell-view.
+      sectionOuter: true,
+      sectionInner: true,
+      sectionSkin: true,
+      sectionInfill: false,
+      sectionSkirt: true,
+      sectionSupport: true,
+      sectionOther: true,
     };
 
     // Preset dat alles op FPS-gunstigste zet (één klik).
@@ -868,16 +929,36 @@
       requestRender();
     }
 
+    // Section type IDs zoals gezet door slicers (Cura / PrusaSlicer / Creality).
+    const SECTION_MAP = {
+      'WALL-OUTER': 1, 'EXTERNAL PERIMETER': 1, 'OUTER WALL': 1,
+      'WALL-INNER': 2, 'PERIMETER': 2, 'INNER WALL': 2,
+      'SKIN': 3, 'TOP SOLID INFILL': 3, 'SOLID INFILL': 3, 'BOTTOM SOLID INFILL': 3,
+      'FILL': 4, 'INTERNAL INFILL': 4, 'INFILL': 4, 'SPARSE INFILL': 4,
+      'SKIRT': 5, 'BRIM': 5,
+      'SUPPORT': 6, 'SUPPORT MATERIAL': 6, 'SUPPORT MATERIAL INTERFACE': 6,
+      'SUPPORT INTERFACE': 6,
+    };
+    function mapSectionType(name) {
+      return SECTION_MAP[name.toUpperCase().trim()] || 0;
+    }
+
     function parseGcodeText(text) {
       const segments = [];
       let x = 0, y = 0, z = 0, ePrev = 0;
       let abs = true;
+      let currentType = 0;
       const min = [Infinity, Infinity, Infinity];
       const max = [-Infinity, -Infinity, -Infinity];
 
       const lines = text.split('\n');
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
+        // Detect TYPE-marker voordat comments worden gestript.
+        const stripped = line.trim();
+        if (stripped.startsWith(';TYPE:')) {
+          currentType = mapSectionType(stripped.slice(6));
+        }
         const semi = line.indexOf(';');
         if (semi >= 0) line = line.slice(0, semi);
         line = line.trim();
@@ -911,7 +992,7 @@
 
         const extruding = ne > ePrev + 1e-6;
         if (extruding && (nx !== x || ny !== y || nz !== z)) {
-          segments.push([x, y, z, nx, ny, nz]);
+          segments.push([x, y, z, nx, ny, nz, currentType]);
           for (let k = 0; k < 3; k++) {
             const v = [nx, ny, nz][k];
             if (v < min[k]) min[k] = v;
@@ -960,7 +1041,8 @@
           const clen = Math.sqrt(cdx * cdx + cdy * cdy + cdz * cdz);
           const gapX = s[0] - cur[3], gapY = s[1] - cur[4], gapZ = s[2] - cur[5];
           const gap = Math.sqrt(gapX * gapX + gapY * gapY + gapZ * gapZ);
-          if (gap < MERGE_GAP && clen > 0) {
+          // Merge alleen als richting én section-type gelijk zijn.
+          if (gap < MERGE_GAP && clen > 0 && cur[6] === s[6]) {
             const dot = (cdx * dx + cdy * dy + cdz * dz) / (clen * len);
             if (dot > MERGE_DOT) {
               cur[3] = s[3]; cur[4] = s[4]; cur[5] = s[5];
@@ -969,7 +1051,7 @@
           }
           out.push(cur);
         }
-        cur = [s[0], s[1], s[2], s[3], s[4], s[5]];
+        cur = [s[0], s[1], s[2], s[3], s[4], s[5], s[6] | 0];
       }
       if (cur) out.push(cur);
       return out;
@@ -985,9 +1067,10 @@
       const c = new THREE.Color();
       for (let i = 0; i < n; i++) {
         const s = segments[i];
-        positions.set(s, i * 6);
-        segColor(c, (s[2] - zMin) / zRange);
         const o = i * 6;
+        positions[o]     = s[0]; positions[o + 1] = s[1]; positions[o + 2] = s[2];
+        positions[o + 3] = s[3]; positions[o + 4] = s[4]; positions[o + 5] = s[5];
+        segColor(c, (s[2] - zMin) / zRange);
         colors[o]     = c.r; colors[o + 1] = c.g; colors[o + 2] = c.b;
         colors[o + 3] = c.r; colors[o + 4] = c.g; colors[o + 5] = c.b;
       }
@@ -1088,6 +1171,20 @@
       return mesh;
     }
 
+    function applySectionFilter(segments) {
+      const a = [
+        settings.sectionOther,
+        settings.sectionOuter,
+        settings.sectionInner,
+        settings.sectionSkin,
+        settings.sectionInfill,
+        settings.sectionSkirt,
+        settings.sectionSupport,
+      ];
+      if (a.every(Boolean)) return segments;
+      return segments.filter(s => a[s[6] | 0]);
+    }
+
     function applyStride(segments) {
       const stride = Math.max(1, settings.segmentStride | 0);
       if (stride <= 1) return segments;
@@ -1110,7 +1207,8 @@
     }
 
     function buildGcodeForQuality(segments, bounds) {
-      const sliced = applyLayerSlice(segments, bounds);
+      const filtered = applySectionFilter(segments);
+      const sliced = applyLayerSlice(filtered, bounds);
       const strided = applyStride(sliced);
       switch (settings.quality) {
         case 'low':  return { obj: buildGcodeLow(strided, bounds), rendered: strided.length };
@@ -1140,10 +1238,10 @@
         const mergedInfo = rawCount && rawCount !== segments.length
           ? ` (${rawCount} raw → ${segments.length} merged)`
           : '';
-        const strideInfo = rendered !== segments.length
-          ? ` → ${rendered} gerenderd (stride ${settings.segmentStride})`
+        const afterFilters = rendered !== segments.length
+          ? ` → ${rendered} gerenderd (filters/slice/stride)`
           : '';
-        $('info').textContent = `${label} — ${segments.length} segments${mergedInfo}${strideInfo} · ${settings.quality}`;
+        $('info').textContent = `${label} — ${segments.length} segments${mergedInfo}${afterFilters} · ${settings.quality}`;
       } else if (viewer.stl) {
         const { geometry, label } = viewer.stl;
         geometry.computeVertexNormals();
@@ -1462,6 +1560,8 @@
       'extrusionWidth', 'layerHeight', 'colorScheme', 'solidColor',
       'segmentStride', 'shaded', 'volumeShape',
       'layerMin', 'layerMax',
+      'sectionOuter', 'sectionInner', 'sectionSkin', 'sectionInfill',
+      'sectionSkirt', 'sectionSupport', 'sectionOther',
     ]);
     const RECREATE_RENDERER = new Set(['antialias']);
     const REFRAME = new Set(['panX', 'panZ']);
@@ -1593,6 +1693,24 @@
     document.querySelectorAll('.view-btn').forEach(btn => {
       btn.addEventListener('click', () => setView(btn.dataset.view));
     });
+
+    // Gcode filter presets
+    function applySectionPreset(preset) {
+      Object.assign(settings, preset);
+      saveSettings();
+      syncPanelInputs();
+      renderCurrent();
+    }
+    $('btn-shell-only').addEventListener('click', () => applySectionPreset({
+      sectionOuter: true, sectionInner: false, sectionSkin: false,
+      sectionInfill: false, sectionSkirt: false, sectionSupport: false,
+      sectionOther: true,
+    }));
+    $('btn-show-all').addEventListener('click', () => applySectionPreset({
+      sectionOuter: true, sectionInner: true, sectionSkin: true,
+      sectionInfill: true, sectionSkirt: true, sectionSupport: true,
+      sectionOther: true,
+    }));
     $('btn-reset-settings').addEventListener('click', () => {
       if (!confirm('Alle settings resetten naar defaults?')) return;
       Object.assign(settings, DEFAULT_SETTINGS);
