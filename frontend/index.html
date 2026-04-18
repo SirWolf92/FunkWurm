@@ -89,8 +89,8 @@
     camera.position.set(200, 200, 200);
     camera.up.set(0, 0, 1);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(1);
     renderer.setSize(wrap.clientWidth, wrap.clientHeight);
     wrap.appendChild(renderer.domElement);
 
@@ -147,12 +147,9 @@
       const distH = (sx / 2) / (Math.tan(fov / 2) * aspect);
       const dist = Math.max(distV, distH, 50) * 1.25;
 
-      // Face-forward, gepand naar rechts: camera en target beide op +X offset,
-      // view-direction blijft langs +Y. Object verschuift zo naar links in beeld.
-      const panX = sx * 0.2;
-      controls.target.set(cx + panX, cy, cz);
-      camera.position.set(cx + panX, cy - dist, cz);
-      camera.lookAt(cx + panX, cy, cz);
+      controls.target.set(cx, cy, cz);
+      camera.position.set(cx, cy - dist, cz);
+      camera.lookAt(cx, cy, cz);
       requestRender();
     }
 
@@ -287,27 +284,22 @@
       geo.boundingBox.getBoundingSphere(geo.boundingSphere);
     }
 
-    // LOW: thick screen-space lines (Line2). Vaste px-dikte ongeacht zoom. Eén draw call.
+    // LOW: plain 1px lines met vertex-colors. Goedkoopste pipeline in Three.js:
+    // geen geometry shader, geen LineMaterial. Ideaal voor zeer grote files.
     function buildGcodeLow(segments, bounds) {
       const { positions, colors } = buildSegmentBuffers(segments, bounds);
-      const geo = new LineSegmentsGeometry();
-      geo.setPositions(positions);
-      geo.setColors(colors);
-      setLineBounds(geo, bounds);
-      const mat = new LineMaterial({
-        vertexColors: true,
-        linewidth: 3,
-        worldUnits: false,
-        dashed: false,
-      });
-      mat.resolution.set(wrap.clientWidth, wrap.clientHeight);
-      const obj = new LineSegments2(geo, mat);
-      obj.userData.lineMaterial = mat;
-      return obj;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      geo.computeBoundingBox();
+      geo.computeBoundingSphere();
+      const mat = new THREE.LineBasicMaterial({ vertexColors: true });
+      return new THREE.LineSegments(geo, mat);
     }
 
-    // MEDIUM: world-unit ribbons op ware extrusiebreedte. Schaalt mee met zoom,
-    // voelt solide. Nog steeds één draw call.
+    // MEDIUM: thick screen-space lines (Line2). Vaste px-dikte ongeacht zoom.
+    // Screen-space (niet worldUnits) zodat de fragment shader goedkoop blijft
+    // ook bij zwaar inzoomen.
     function buildGcodeMedium(segments, bounds) {
       const { positions, colors } = buildSegmentBuffers(segments, bounds);
       const geo = new LineSegmentsGeometry();
@@ -316,8 +308,8 @@
       setLineBounds(geo, bounds);
       const mat = new LineMaterial({
         vertexColors: true,
-        linewidth: EXTRUSION_WIDTH,
-        worldUnits: true,
+        linewidth: 4,
+        worldUnits: false,
         dashed: false,
       });
       mat.resolution.set(wrap.clientWidth, wrap.clientHeight);
